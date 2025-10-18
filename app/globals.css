@@ -1,0 +1,232 @@
+/* ---- Base reset ---- */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body, h1, h2, h3, h4, p, figure { margin: 0; }
+img, svg, video, canvas { display: block; max-width: 100%; }
+
+/* ---- Design tokens ---- */
+:root{
+  --bg: #ffffff;
+  --text: #0b0f19;
+  --muted: #5f6b7a;
+  --surface: #f9fafb;
+  --border: #e5e7eb;
+  --brand: #1f6feb;
+  --brand-700: #1a5cd1;
+  --danger: #b00020;
+  --radius: 12px;
+  --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.06);
+}
+
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg: #0b0b10;
+    --text: #e8eef7;
+    --muted: #9aa4b2;
+    --surface: #11121a;
+    --border: #232536;
+    --brand: #7aa2ff;
+    --brand-700: #638cff;
+    --danger: #ff5572;
+    --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.45);
+  }
+}
+
+/* ---- Base typography ---- */
+body{
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji","Segoe UI Emoji";
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- Layout helpers ---- */
+.container{
+  max-width: 960px;
+  margin-inline: auto;
+  padding: 24px;
+}
+.stack > * + *{ margin-top: 12px; }
+
+/* ---- Surfaces ---- */
+.card{
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+
+/* ---- Form controls ---- */
+.input{
+  flex: 1;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text);
+}
+@media (prefers-color-scheme: dark){
+  .input{ background: #0f1117; }
+}
+.input::placeholder{ color: var(--muted); }
+.input:focus{
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 30%, transparent);
+}
+
+/* ---- Buttons ---- */
+.btn{
+  height: 44px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+}
+@media (prefers-color-scheme: dark){
+  .btn{ background: #0f1117; }
+}
+.btn:disabled{ opacity: .6; cursor: not-allowed; }
+.btn-primary{
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+.btn-primary:hover{ background: var(--brand-700); border-color: var(--brand-700); }
+.btn-ghost{
+  background: transparent;
+}
+
+/* ---- Page chrome ---- */
+.page-title{
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.subtitle{
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+/* Toolbar row */
+.toolbar{
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Suggestions */
+.chips{ display:flex; gap:8px; flex-wrap: wrap; }
+.chip{
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* Feedback */
+.error{
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+.provenance{
+  font-size: 13px;
+  color: var(--muted);
+}
+a{ color: var(--brand); text-decoration: none; }
+a:hover{ text-decoration: underline; }
+
+/* --- Non-clickable source badges --- */
+.badges{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.badge{
+  display:inline-flex; align-items:center; gap:8px;
+  padding:6px 10px; border-radius:999px; font-size:13px;
+  background: linear-gradient(180deg, var(--surface), transparent);
+  border:1px solid var(--border);
+  box-shadow: var(--shadow);
+  user-select:none; pointer-events:none; /* not clickable */
+}
+.badge .dot{ width:8px; height:8px; border-radius:50%; }
+
+/* simple dot colors per source */
+.dot.worldbank{ background:#2a9d8f; }   /* teal */
+.dot.openmeteo{ background:#8b5cf6; }   /* purple */
+
+@media (prefers-color-scheme: dark){
+  .badge{ background: linear-gradient(180deg, #0f1117, transparent); }
+}
+/* --- Force Light Theme (matches Lookable screenshots) --- */
+html.theme-light{
+  color-scheme: light;
+  --bg: #ffffff;
+  --text: #0b0f19;
+  --muted: #5f6b7a;
+  --surface: #f9fafb;
+  --border: #e5e7eb;
+  --brand: #1f6feb;
+  --brand-700: #1a5cd1;
+  --danger: #b00020;
+  --radius: 12px;
+  --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.06);
+}
+/* --- Ensure light controls even if system is dark --- */
+html.theme-light .input,
+html.theme-light input[type="text"],
+html.theme-light input[type="search"],
+html.theme-light input[type="email"],
+html.theme-light input[type="number"],
+html.theme-light textarea {
+  background: #fff !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+html.theme-light .btn:not(.btn-primary) {
+  background: #fff !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+html.theme-light ::placeholder {
+  color: var(--muted) !important;
+}
+/* === Make source badges (top bubbles) brighter in light theme === */
+html.theme-light .badge{
+  background: #ffffff !important;          /* no grey/black look */
+  color: var(--text) !important;
+  border-color: #e5e7eb !important;
+  box-shadow: 0 1px 2px rgba(0,0,0,.05), 0 8px 20px rgba(0,0,0,.06);
+}
+
+/* === Enhance hover for example chips (bottom three) === */
+html.theme-light .chip{
+  background: #ffffff;                      /* solid pill like the screenshots */
+  transition: transform .12s ease, box-shadow .12s ease,
+              background-color .12s ease, border-color .12s ease;
+}
+html.theme-light .chip:hover{
+  background: color-mix(in srgb, var(--brand) 6%, #fff);
+  border-color: color-mix(in srgb, var(--brand) 35%, var(--border));
+  box-shadow: 0 1px 2px rgba(0,0,0,.05), 0 8px 18px rgba(0,0,0,.06);
+  transform: translateY(-1px);
+}
+html.theme-light .chip:active{
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(0,0,0,.04);
+}
+html.theme-light .chip:focus-visible{
+  outline: 2px solid color-mix(in srgb, var(--brand) 45%, #ffffff);
+  outline-offset: 2px;
+}
