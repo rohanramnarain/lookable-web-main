@@ -1,50 +1,75 @@
-import { z } from "zod";
+// src/lib/fetchers/urban.ts
+// Enhanced Urban (NCES/IPEDS/CCD) fetcher that supports a {year} template and multi-year loops.
 
-export const UrbanParams = z.object({
-  /** A path that starts with /api/v1/... (will be validated & prefixed) */
-  path: z.string().regex(/^\/?api\/v1\//),
-  /** Optional querystring filters, e.g. { fips: "11", grade: "3" } */
-  filters: z.record(z.string(), z.string().or(z.number()).or(z.boolean())).default({}),
-  /** Field to plot as numeric value (e.g., "enrollment", "count", "value") */
-  valueField: z.string(),
-  /** Field that represents year; defaults to "year" */
-  yearField: z.string().default("year"),
-  /** Optional dimension to split series (e.g., "race", "sex", "level") */
-  seriesField: z.string().optional(),
-  /** Optional: only include these series values */
-  seriesAllow: z.array(z.string()).optional(),
-});
+import { csvParse } from "d3-dsv";
 
-export type UrbanParams = z.infer<typeof UrbanParams>;
+type UrbanParams = {
+  // Either absolute path beginning with /api/v1/... or full https URL
+  path?: string;              // e.g., "/api/v1/schools/ccd/enrollment/2013/grade-3/?fips=11&sex=99&race=99"
+  pathTemplate?: string;      // e.g., "/api/v1/schools/ccd/enrollment/{year}/grade-3/?fips=11&sex=99&race=99"
+  years?: number[];           // used only with pathTemplate
+  valueField: string;         // e.g., "enrollment"
+  yearField?: string;         // defaults to "year"
+  seriesField?: string;       // optional series split (e.g., "charter_text")
+  filters?: Record<string, string | number>; // reserved for future use
+};
+
 type Row = { date: string; value: number; series?: string };
 
-function qs(filters: Record<string, any>) {
-  const sp = new URLSearchParams();
-  for (const [k, v] of Object.entries(filters)) sp.set(k, String(v));
-  const s = sp.toString();
-  return s ? `?${s}` : "";
+function toUrl(input: string) {
+  return input.startsWith("http") ? input : `https://educationdata.urban.org${input}`;
 }
 
-export async function fetchUrban(p: UrbanParams): Promise<{ title: string; unit?: string; rows: Row[] }> {
-  // strict host allow (we'll also add regex in allowlist)
-  const base = "https://educationdata.urban.org";
-  const url = `${base}/${p.path.replace(/^\//, "")}${qs(p.filters)}`;
-  const resp = await fetch(url, { next: { revalidate: 86400 } });
-  if (!resp.ok) throw new Error(`Urban API ${resp.status}`);
-  const json: any = await resp.json();
+function isoDate(y: number) { return `${y}-01-01`; }
 
-  const data = Array.isArray(json?.results) ? json.results : (Array.isArray(json) ? json : []);
-  const rows: Row[] = [];
+async function fetchOne(url: string) {
+  const res = await fetch(url, { next: { revalidate: 86400 } });
+  if (!res.ok) throw new Error(`Urban fetch failed: ${res.status} for ${url}`);
+  return await res.json();
+}
 
-  for (const r of data) {
-    const y = Number(r?.[p.yearField]);
-    const v = Number(r?.[p.valueField]);
-    if (!Number.isFinite(y) || !Number.isFinite(v)) continue;
-    const series = p.seriesField ? String(r?.[p.seriesField] ?? "") : undefined;
-    if (p.seriesAllow && series && !p.seriesAllow.includes(series)) continue;
-    rows.push({ date: `${y}-01-01`, value: v, series });
+export async function fetchUrban(p: UrbanParams) {
+  const yearField = p.yearField ?? "year";
+  let rows: Row[] = [];
+  let firstUrl = "";
+
+  if (p.pathTemplate && p.years && p.years.length) {
+    // Loop over years, replacing {year}
+    for (const y of p.years) {
+      const path = p.pathTemplate.replace("{year}", String(y));
+      const url = toUrl(path);
+      if (!firstUrl) firstUrl = url;
+      const data: any[] = await fetchOne(url);
+      data.forEach((r: any) => {
+        const yr = Number(r[yearField] ?? y);
+        const v = Number(r[p.valueField]);
+        if (!Number.isFinite(yr) || !Number.isFinite(v)) return;
+        const series = p.seriesField && r[p.seriesField] != null ? String(r[p.seriesField]) : undefined;
+        rows.push(series ? { date: isoDate(yr), value: v, series } : { date: isoDate(yr), value: v });
+      });
+    }
+  } else if (p.path) {
+    const url = toUrl(p.path);
+    firstUrl = url;
+    const data: any[] = await fetchOne(url);
+    data.forEach((r: any) => {
+      const yr = Number(r[yearField]);
+      const v = Number(r[p.valueField]);
+      if (!Number.isFinite(yr) || !Number.isFinite(v)) return;
+      const series = p.seriesField && r[p.seriesField] != null ? String(r[p.seriesField]) : undefined;
+      rows.push(series ? { date: isoDate(yr), value: v, series } : { date: isoDate(yr), value: v });
+    });
+  } else {
+    throw new Error("Urban: provide either path or {pathTemplate + years[]}");
   }
 
-  rows.sort((a,b) => a.date.localeCompare(b.date));
-  return { title: "Urban Education Data", unit: undefined, rows };
+  // Sort rows
+  rows.sort((a, b) => a.date.localeCompare(b.date) || (a.series || "").localeCompare(b.series || ""));
+
+  return {
+    rows,
+    unit: "Students",
+    title: undefined,
+    provenance: { source: "Urban Institute Education Data API", url: firstUrl || "https://educationdata.urban.org/documentation/" },
+  };
 }

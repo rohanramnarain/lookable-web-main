@@ -1,79 +1,94 @@
-import { z } from "zod";
+// src/lib/fetchers/owid.ts
+// Server-side fetchers for OWID. Avoid browser CORS. Two indicators supported:
+//  - "co2": uses consolidated GitHub CSV (owid-co2-data.csv)
+//  - "life-expectancy": uses OWID Grapher CSV (life-expectancy.csv)
+
 import { csvParse } from "d3-dsv";
 
-export const OwidParams = z.object({
-  indicator: z.enum(["co2", "life-expectancy"]), // extend later if needed
-  countries: z.array(z.string()).default(["World"]), // ISO3 codes or names as shown by OWID
-  startYear: z.number().int().optional(),
-  endYear: z.number().int().optional(),
-});
-
-export type OwidParams = z.infer<typeof OwidParams>;
-
-type Row = { date: string; value: number; series?: string; unit?: string };
-
-async function fetchOwidCsv(chartId: string) {
-  const url = `https://ourworldindata.org/grapher/${chartId}.csv?csvType=full&useColumnShortNames=true`;
-  const resp = await fetch(url, { next: { revalidate: 86400 } });
-  if (!resp.ok) throw new Error(`OWID ${chartId} ${resp.status}`);
-  const text = await resp.text();
-  return csvParse(text); // rows with columns: Entity, Code, Year, <valueCol>
-}
-
-async function fetchOwidMeta(chartId: string) {
-  const url = `https://ourworldindata.org/grapher/${chartId}.metadata.json`;
-  const resp = await fetch(url, { next: { revalidate: 86400 } });
-  if (!resp.ok) return { title: chartId, unit: undefined as string | undefined };
-  const meta = await resp.json();
-  const chartTitle: string | undefined = meta?.chart?.title;
-  // find the first data column and read its unit
-  const cols = meta?.columns ? Object.values(meta.columns as Record<string, any>) : [];
-  const firstData = cols.find((c: any) => c?.unit);
-  return { title: chartTitle ?? chartId, unit: firstData?.unit as string | undefined };
-}
-
-/** indicator -> grapher chart id */
-const CHARTS: Record<"co2" | "life-expectancy", string> = {
-  co2: "co2",
-  "life-expectancy": "life-expectancy",
+export type OwidIndicator = "life-expectancy" | "co2";
+export type OwidOpts = {
+  indicator: OwidIndicator;
+  countries: string[];        // ISO-3 like "USA", "CHN", or OWID country names; will try both
+  startYear?: number;
+  endYear?: number;
 };
 
-export async function fetchOwid(p: OwidParams): Promise<{ title: string; unit?: string; rows: Row[] }> {
-  const chartId = CHARTS[p.indicator];
-  const [table, meta] = await Promise.all([fetchOwidCsv(chartId), fetchOwidMeta(chartId)]);
-  // locate the data column (the last column after Entity,Code,Year)
-  const columns = table.columns;
-  const valueCol = columns[columns.length - 1];
+type Row = { date: string; value: number; series?: string };
 
-  const want = new Set(p.countries.map(s => s.toLowerCase()));
-  const rows: Row[] = [];
+function isoDate(y: number) { return `${y}-01-01`; }
 
-  for (const r of table) {
-    const entity = String((r as any).Entity ?? "");
-    const code = String((r as any).Code ?? "");
-    const year = Number((r as any).Year);
-    const val = Number((r as any)[valueCol]);
+export async function fetchOwid(opts: OwidOpts) {
+  const { indicator, countries, startYear = 1950, endYear = new Date().getFullYear() } = opts;
+  let rows: Row[] = [];
+  let yLabel = "Value";
+  let title: string | undefined;
+  let url = "";
 
-    if (!Number.isFinite(year) || !Number.isFinite(val)) continue;
+  if (indicator === "co2") {
+    // Use consolidated dataset from GitHub (wide coverage, stable path)
+    url = "https://raw.githubusercontent.com/owid/co2-data/master/owid-co2-data.csv";
+    const res = await fetch(url, { next: { revalidate: 86400 } });
+    if (!res.ok) throw new Error(`OWID CO2 fetch failed: ${res.status}`);
+    const text = await res.text();
+    const table = csvParse(text);
 
-    const inCountries =
-      want.size === 0 ||
-      want.has(entity.toLowerCase()) ||
-      want.has(code.toLowerCase());
+    // Columns: iso_code, country, year, co2, ...
+    const want = new Set(countries.map(c => String(c).trim().toUpperCase()));
+    table.forEach((r: any) => {
+      const iso = String(r.iso_code || "").toUpperCase();
+      const name = String(r.country || "");
+      const yr = Number(r.year);
+      if (!Number.isFinite(yr) || yr < startYear || yr > endYear) return;
 
-    const inRange =
-      (p.startYear == null || year >= p.startYear) &&
-      (p.endYear == null || year <= p.endYear);
+      const match = want.has(iso) || want.has(name.toUpperCase());
+      if (!match) return;
 
-    if (inCountries && inRange) {
-      rows.push({
-        date: `${year}-01-01`,
-        value: val,
-        series: entity,
-        unit: meta.unit,
-      });
-    }
+      const v = Number(r.co2); // million tonnes
+      if (!Number.isFinite(v)) return;
+
+      rows.push({ date: isoDate(yr), value: v, series: name });
+    });
+
+    yLabel = "CO₂ (Mt)";
+    title = "CO₂ emissions (fossil & industry)";
+  } else if (indicator === "life-expectancy") {
+    // Use Grapher CSV for life expectancy
+    url = "https://ourworldindata.org/grapher/life-expectancy.csv";
+    const res = await fetch(url, { next: { revalidate: 86400 } });
+    if (!res.ok) throw new Error(`OWID life-expectancy fetch failed: ${res.status}`);
+    const text = await res.text();
+    const table = csvParse(text);
+
+    // Columns: Entity, Code, Year, Life expectancy
+    const want = new Set(countries.map(c => String(c).trim().toUpperCase()));
+    table.forEach((r: any) => {
+      const code = String(r.Code || "").toUpperCase();
+      const name = String(r.Entity || "");
+      const yr = Number(r.Year);
+      if (!Number.isFinite(yr) || yr < startYear || yr > endYear) return;
+
+      const match = want.has(code) || want.has(name.toUpperCase());
+      if (!match) return;
+
+      const v = Number(r["Life expectancy"]);
+      if (!Number.isFinite(v)) return;
+
+      rows.push({ date: isoDate(yr), value: v, series: name });
+    });
+
+    yLabel = "Years";
+    title = "Life expectancy at birth";
+  } else {
+    throw new Error(`Unsupported OWID indicator: ${indicator}`);
   }
 
-  return { title: meta.title, unit: meta.unit, rows };
+  // Simple sort by date + series for deterministic charts
+  rows.sort((a, b) => (a.series || "").localeCompare(b.series || "") || a.date.localeCompare(b.date));
+
+  return {
+    rows,
+    unit: yLabel,
+    title,
+    provenance: { source: "Our World in Data", url },
+  };
 }
