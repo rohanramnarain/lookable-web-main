@@ -49,13 +49,16 @@ function compileSpec(chart: any, rows: any[], source: SourceKey) {
   const mark = chart?.mark || "line";
   const title = chart?.title;
 
-  return {
+    const fallbackY = chart?.y?.title
+    ?? (typeof title === 'string' ? title.replace(/^(?:[A-Z]{2,3}\s+)?/, '') : undefined)
+    ?? 'Value';
+return {
     $schema: "https://vega.github.io/schema/vega-lite/v5.json",
     ...(title ? { title } : {}),
     mark,
     encoding: {
       x: { field: xField, type: xType, title: chart?.x?.title },
-      y: { field: yField, type: yType, title: chart?.y?.title },
+      y: { field: yField, type: yType, title: fallbackY },
     },
     data: { values: rows },
   };

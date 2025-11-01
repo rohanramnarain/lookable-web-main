@@ -84,10 +84,10 @@ function patchYAxisTitle(s: VLSpec): VLSpec {
     if (typeof y === "object") {
       sp.encoding = {
         ...sp.encoding,
-        y: { ...y, title: candidate },
+        y: { ...y, title: candidate, axis: { ...(y.axis ?? {}), title: candidate } },
       };
     } else {
-      sp.encoding = { ...(sp.encoding ?? {}), y: { title: candidate } };
+      sp.encoding = { ...(sp.encoding ?? {}), y: { title: candidate, axis: { title: candidate } } };
     }
   }
 
