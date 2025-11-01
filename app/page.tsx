@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import Chart from "@/components/Chart";
 import { plan, ensureEngine } from "@/lib/llm";
 import { isAllowedSource } from "@/lib/allowlist";
 import { CATALOG, isMetricId } from "@/lib/catalog";
 import { fetchWDI } from "@/lib/fetchers/worldbank";
 import { fetchOpenMeteo } from "@/lib/fetchers/openmeteo";
+import { runSource } from "@/lib/runSource";
 
 /** Normalize common country inputs to ISO-3 for World Bank. */
 function normalizeCountry(input?: unknown) {
@@ -24,35 +25,31 @@ function safeYear(value: unknown, fallback: number) {
   return Number.isFinite(n) && n > 1900 && n < 3000 ? n : fallback;
 }
 
-/** Allowed sources -> field mapping we chart safely. */
-type SourceKey = "worldbank" | "openmeteo";
-function fieldMapFor(source: SourceKey) {
+/** Chart field mapping modes. */
+type SourceMode = "worldbank" | "openmeteo" | "generic";
+
+function fieldMapFor(source: SourceMode) {
   if (source === "openmeteo") {
-    return {
-      xField: "time",
-      xType: "temporal" as const,
-      yField: "temperature",
-      yType: "quantitative" as const,
-    };
+    return { xField: "time", xType: "temporal" as const, yField: "temperature", yType: "quantitative" as const };
   }
-  return {
-    xField: "year",
-    xType: "ordinal" as const,
-    yField: "value",
-    yType: "quantitative" as const,
-  };
+  if (source === "worldbank") {
+    return { xField: "year", xType: "ordinal" as const, yField: "value", yType: "quantitative" as const };
+  }
+  // generic timeseries (OWID, BLS, EPA, Urban) use ISO date
+  return { xField: "date", xType: "temporal" as const, yField: "value", yType: "quantitative" as const };
 }
 
 /** Build a minimal Vega-Lite spec from chart meta + fetched rows + field map. */
-function compileSpec(chart: any, rows: any[], source: SourceKey) {
+function compileSpec(chart: any, rows: any[], source: SourceMode) {
   const { xField, xType, yField, yType } = fieldMapFor(source);
   const mark = chart?.mark || "line";
   const title = chart?.title;
 
-    const fallbackY = chart?.y?.title
+  const fallbackY = chart?.y?.title
     ?? (typeof title === 'string' ? title.replace(/^(?:[A-Z]{2,3}\s+)?/, '') : undefined)
     ?? 'Value';
-return {
+
+  return {
     $schema: "https://vega.github.io/schema/vega-lite/v5.json",
     ...(title ? { title } : {}),
     mark,
@@ -64,20 +61,67 @@ return {
   };
 }
 
-const SUGGESTIONS = [
-  `US unemployment over the last 5 years`,
-  `US GDP per capita since 2000`,
-  `NYC temperature next 7 days`,
+/** ======= Suggestions (pre-select prompts) ======= */
+type SuggestionGroup = { label: string; items: string[] };
+
+const SUGGESTION_GROUPS: SuggestionGroup[] = [
+  { label: "World Bank", items: [
+    "US GDP per capita since 2000",
+    "Population Nigeria since 1990",
+    "Inflation CPI % Germany 2010–2024",
+  ]},
+  { label: "Open-Meteo", items: [
+    "NYC temperature next 7 days",
+    "San Francisco hourly temperature tomorrow",
+  ]},
+  { label: "OWID", items: [
+    "Life expectancy Japan vs United States since 1950",
+    "CO2 emissions World and China since 1990",
+  ]},
+  { label: "BLS", items: [
+    "Unemployment rate by race in the US since 2000",
+  ]},
+  { label: "EPA AirData", items: [
+    "Daily AQI for Los Angeles-Long Beach-Anaheim, CA in 2024",
+  ]},
+  { label: "Urban (NCES/IPEDS)", items: [
+    "Grade 3 enrollment in DC, 2013 (NCES CCD)",
+  ]},
 ];
 
-// Labels (and a typed list) for the bubble chips under the title.
-const SOURCE_LABEL: Record<SourceKey, string> = {
+/** ======= Source bubbles (dynamic from catalog) ======= */
+type BubbleKey = "worldbank" | "openmeteo" | "owid" | "bls" | "epa_aqi" | "urban";
+
+function isBubbleKey(x: unknown): x is BubbleKey {
+  return ["worldbank","openmeteo","owid","bls","epa_aqi","urban"].includes(String(x));
+}
+
+const SOURCE_LABEL: Record<BubbleKey, string> = {
   worldbank: "World Bank",
   openmeteo: "Open-Meteo",
+  owid: "Our World in Data",
+  bls: "US BLS",
+  epa_aqi: "EPA AirData",
+  urban: "Urban (NCES/IPEDS)",
 };
-const SOURCES: SourceKey[] = Array.from(
-  new Set(Object.values(CATALOG).map((d) => d.source as SourceKey))
-).filter((s): s is SourceKey => s === "worldbank" || s === "openmeteo");
+
+function dotStyleFor(key: BubbleKey): CSSProperties {
+  const base: CSSProperties = { width: ".6rem", height: ".6rem", borderRadius: 999, display: "inline-block", marginRight: ".35rem" };
+  const colors: Record<BubbleKey, string> = {
+    worldbank: "#2b8a3e",
+    openmeteo: "#0077b6",
+    owid: "#6b5b95",
+    bls: "#2a9d8f",
+    epa_aqi: "#e76f51",
+    urban: "#3a86ff",
+  };
+  return { ...base, background: colors[key] };
+}
+
+// Build visible bubbles from catalog (only allowed + known keys)
+const SOURCES_BUBBLES: BubbleKey[] = Array.from(
+  new Set(Object.values(CATALOG).map((d) => d.source))
+).filter((s) => isAllowedSource(s) && isBubbleKey(s)) as BubbleKey[];
 
 export default function Home() {
   const [query, setQuery] = useState("");
@@ -108,13 +152,13 @@ export default function Home() {
       if (!isMetricId(p.metricId)) throw new Error("Planner chose an unknown metricId");
       const def = CATALOG[p.metricId];
       if (!isAllowedSource(def.source)) throw new Error("Source not allowed");
-      const sourceKey: SourceKey = def.source;
+      const mode: SourceMode = def.source === "worldbank" ? "worldbank" : (def.source === "openmeteo" ? "openmeteo" : "generic");
 
       let rows: any[] = [];
       let provenance: any = null;
       const now = new Date().getFullYear();
 
-      if (sourceKey === "worldbank") {
+      if (mode === "worldbank") {
         const indicator = def.dataset!;
         const merged = { ...(def.defaultParams || {}), ...(p.params || {}) };
         const country = normalizeCountry(merged.country);
@@ -124,7 +168,7 @@ export default function Home() {
         const out = await fetchWDI(indicator, country, start, end);
         rows = out.rows;
         provenance = out.provenance;
-      } else {
+      } else if (mode === "openmeteo") {
         const merged = { ...(def.defaultParams || {}), ...(p.params || {}) };
         const lat = Number(merged.lat ?? 40.7128);
         const lon = Number(merged.lon ?? -74.0060);
@@ -132,12 +176,22 @@ export default function Home() {
         const out = await fetchOpenMeteo(lat, lon);
         rows = out.rows;
         provenance = out.provenance;
+      } else {
+        // Generic sources (OWID, BLS, EPA AQI, Urban)
+        const out = await runSource(p.metricId as any, p.params || {});
+        rows = out.rows;
+        provenance = out.provenance;
+        // Use generic mode for field mapping
+        const vl = compileSpec(p.chart || {}, rows, "generic");
+        setSpec(vl);
+        setProv(provenance);
+        return;
       }
 
       if (!rows.length)
         throw new Error("No data returned for the selected metric/time range. Try a wider range.");
 
-      const vl = compileSpec(p.chart || {}, rows, sourceKey);
+      const vl = compileSpec(p.chart || {}, rows, mode);
       setSpec(vl);
       setProv(provenance);
     } catch (e: any) {
@@ -145,17 +199,6 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }
-
-  async function runNoLLM() {
-    const { rows, provenance } = await fetchWDI("NY.GDP.PCAP.KD", "USA", 2000);
-    const vl = compileSpec(
-      { mark: "line", title: "US GDP per capita since 2000" },
-      rows,
-      "worldbank"
-    );
-    setSpec(vl);
-    setProv(provenance);
   }
 
   function submit(e: React.FormEvent<HTMLFormElement>) {
@@ -169,11 +212,11 @@ export default function Home() {
         <h1 className="page-title">Lookable — open data only</h1>
         <p className="subtitle">Instant, no-code charts from trusted public sources.</p>
 
-        {/* Static, non-clickable source bubbles */}
-        <div className="badges" aria-label="Supported sources">
-          {SOURCES.map((key) => (
+        {/* Dynamic, non-clickable source bubbles */}
+        <div className="badges" aria-label="Supported sources" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {SOURCES_BUBBLES.map((key) => (
             <span key={key} className="badge">
-              <span className={`dot ${key}`} aria-hidden="true" />
+              <span style={dotStyleFor(key)} aria-hidden="true" />
               {SOURCE_LABEL[key]}
             </span>
           ))}
@@ -193,23 +236,27 @@ export default function Home() {
           <button type="submit" className="btn btn-primary" disabled={loading || !query}>
             {loading ? "Thinking…" : "Go"}
           </button>
-        
         </form>
 
         {/* Helpful suggestions; click to fill input */}
-        <div className="chips" style={{ marginTop: 10 }}>
-          {SUGGESTIONS.map((s) => (
-            <button
-              key={s}
-              type="button"
-              className="chip"
-              onClick={() => {
-                setQuery(s);
-              }}
-              aria-label={`Use example: ${s}`}
-            >
-              {s}
-            </button>
+        <div className="stack" style={{ marginTop: 10, gap: 10 }}>
+          {SUGGESTION_GROUPS.map((g) => (
+            <div key={g.label}>
+              <div className="chips-label" style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>{g.label}</div>
+              <div className="chips" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {g.items.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    className="chip"
+                    onClick={() => setQuery(s)}
+                    aria-label={`Use example: ${s}`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       </div>
