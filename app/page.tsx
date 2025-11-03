@@ -7,7 +7,8 @@ import { isAllowedSource } from "@/lib/allowlist";
 import { CATALOG, isMetricId } from "@/lib/catalog";
 import { fetchWDI } from "@/lib/fetchers/worldbank";
 import { fetchOpenMeteo } from "@/lib/fetchers/openmeteo";
-import { runSource } from "@/lib/runSource";
+// ✅ use server action for generic sources (OWID/BLS/EPA/Urban)
+import { getDataForPlan } from "./actions";
 
 /** Normalize common country inputs to ISO-3 for World Bank. */
 function normalizeCountry(input?: unknown) {
@@ -28,26 +29,47 @@ function safeYear(value: unknown, fallback: number) {
 /** Chart field mapping modes. */
 type SourceMode = "worldbank" | "openmeteo" | "generic";
 
-function fieldMapFor(source: SourceMode) {
-  if (source === "openmeteo") {
-    return { xField: "time", xType: "temporal" as const, yField: "temperature", yType: "quantitative" as const };
-  }
-  if (source === "worldbank") {
-    return { xField: "year", xType: "ordinal" as const, yField: "value", yType: "quantitative" as const };
-  }
-  // generic timeseries (OWID, BLS, EPA, Urban) use ISO date
-  return { xField: "date", xType: "temporal" as const, yField: "value", yType: "quantitative" as const };
+/** Detect the best x-axis field for generic sources */
+function detectAxis(rows: any[]): { xField: string; xType: "temporal" | "ordinal" } {
+  const sample = rows.find((r) => r && typeof r === "object") || {};
+  if ("date" in sample) return { xField: "date", xType: "temporal" };
+  if ("year" in sample) return { xField: "year", xType: "ordinal" }; // OWID/WB often use numeric years
+  if ("time" in sample) return { xField: "time", xType: "temporal" };
+  return { xField: "date", xType: "temporal" };
 }
 
 /** Build a minimal Vega-Lite spec from chart meta + fetched rows + field map. */
 function compileSpec(chart: any, rows: any[], source: SourceMode) {
-  const { xField, xType, yField, yType } = fieldMapFor(source);
+  // Clean rows so Vega-Lite doesn’t choke on null/NaN
+  const cleaned = (rows || []).filter((r) => r && (r.value == null || Number.isFinite(Number(r.value))));
+
+  let xField: string;
+  let xType: "temporal" | "ordinal";
+  let yField: string = "value";
+  let yType: "quantitative" = "quantitative";
+
+  if (source === "openmeteo") {
+    xField = "time";
+    xType = "temporal";
+    yField = "temperature"; // your Open-Meteo fetcher uses this
+  } else if (source === "worldbank") {
+    xField = "year";
+    xType = "ordinal";
+    yField = "value";
+  } else {
+    // Generic (OWID, BLS, EPA, Urban): detect x axis from data
+    const axis = detectAxis(cleaned);
+    xField = axis.xField;
+    xType = axis.xType;
+  }
+
   const mark = chart?.mark || "line";
   const title = chart?.title;
 
-  const fallbackY = chart?.y?.title
-    ?? (typeof title === 'string' ? title.replace(/^(?:[A-Z]{2,3}\s+)?/, '') : undefined)
-    ?? 'Value';
+  const fallbackY =
+    chart?.y?.title ??
+    (typeof title === "string" ? title.replace(/^(?:[A-Z]{2,3}\s+)?/, "") : undefined) ??
+    "Value";
 
   return {
     $schema: "https://vega.github.io/schema/vega-lite/v5.json",
@@ -57,7 +79,7 @@ function compileSpec(chart: any, rows: any[], source: SourceMode) {
       x: { field: xField, type: xType, title: chart?.x?.title },
       y: { field: yField, type: yType, title: fallbackY },
     },
-    data: { values: rows },
+    data: { values: cleaned },
   };
 }
 
@@ -152,7 +174,9 @@ export default function Home() {
       if (!isMetricId(p.metricId)) throw new Error("Planner chose an unknown metricId");
       const def = CATALOG[p.metricId];
       if (!isAllowedSource(def.source)) throw new Error("Source not allowed");
-      const mode: SourceMode = def.source === "worldbank" ? "worldbank" : (def.source === "openmeteo" ? "openmeteo" : "generic");
+      const mode: SourceMode =
+        def.source === "worldbank" ? "worldbank" :
+        def.source === "openmeteo" ? "openmeteo" : "generic";
 
       let rows: any[] = [];
       let provenance: any = null;
@@ -177,11 +201,14 @@ export default function Home() {
         rows = out.rows;
         provenance = out.provenance;
       } else {
-        // Generic sources (OWID, BLS, EPA AQI, Urban)
-        const out = await runSource(p.metricId as any, p.params || {});
-        rows = out.rows;
+        // ✅ Generic sources (OWID, BLS, EPA AQI, Urban) via server action (no CORS).
+        const out = await getDataForPlan({ metricId: p.metricId as string, params: p.params || {} });
+        rows = out.rows as any[];
         provenance = out.provenance;
-        // Use generic mode for field mapping
+
+        if (!rows.length)
+          throw new Error("No data returned for the selected metric/time range. Try a wider range.");
+
         const vl = compileSpec(p.chart || {}, rows, "generic");
         setSpec(vl);
         setProv(provenance);
