@@ -40,12 +40,12 @@ function extractYearsInclusive(q: string): { start?: number; end?: number } {
     b = Math.min(b, now);
     return { start: a, end: b };
   }
-  const since = s.match(/since\s+(\d{4})/);
+  const since = s.match(/\bsince\s+(\d{4})\b/);
   if (since) {
     const a = Number(since[1]);
     if (Number.isFinite(a)) return { start: a, end: now };
   }
-  const last = s.match(/last\s+(\d+)\s+years?/);
+  const last = s.match(/\blast\s+(\d+)\s+years?\b/);
   if (last) {
     const n = Number(last[1]);
     if (Number.isFinite(n) && n > 0) return { start: now - (n - 1), end: now };
@@ -57,6 +57,26 @@ function extractLatLon(q: string): { lat?: number; lon?: number } {
   const m = q.match(/(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/);
   if (!m) return {};
   return { lat: Number(m[1]), lon: Number(m[2]) };
+}
+
+/* ---------------- race helpers ---------------- */
+
+const RACE_WORDS: Record<string, RegExp> = {
+  white: /\bwhite(s)?\b/i,
+  black: /\b(black|african[-\s]?american)s?\b/i,
+  asian: /\b(aapi|asian(?:[-\s]?american)?)s?\b/i,
+  hispanic: /\b(hispanic|latino|latina|latinx)\b/i,
+};
+
+function extractRaces(q: string): string[] {
+  const found = Object.entries(RACE_WORDS)
+    .filter(([, rx]) => rx.test(q))
+    .map(([race]) => race);
+  return found;
+}
+
+function mentionsByRace(q: string): boolean {
+  return /\bby\s*race\b/i.test(q);
 }
 
 /* --------------- deterministic planner --------------- */
@@ -76,7 +96,7 @@ export async function plan(query: string): Promise<Plan> {
   }
 
   // Population (World Bank)
-  if (/(population|pop)/.test(q)) {
+  if (/(^|\s)(population|pop)(\s|$)/.test(q)) {
     return PlanSchema.parse({
       metricId: "population_total",
       params: { country: toISO3FromQuery(query) ?? "USA", ...(start ? { start } : {}), ...(end ? { end } : {}) },
@@ -94,7 +114,7 @@ export async function plan(query: string): Promise<Plan> {
   }
 
   // Inflation CPI (World Bank)
-  if (/(inflation|cpi)/.test(q)) {
+  if (/(^|\s)(inflation|cpi)(\s|$)/.test(q)) {
     return PlanSchema.parse({
       metricId: "inflation_cpi_pct",
       params: { country: toISO3FromQuery(query) ?? "USA", ...(start ? { start } : {}), ...(end ? { end } : {}) },
@@ -102,11 +122,21 @@ export async function plan(query: string): Promise<Plan> {
     });
   }
 
-  // Unemployment by race (BLS)
-  if (/(unemployment).*?(race)|(race).*?(unemployment)/.test(q)) {
+  // ==== Unemployment by race (BLS) – trigger on ANY race keyword or "by race" ====
+  if (/(unemployment|jobless|unemploy)/.test(q) && (mentionsByRace(q) || extractRaces(q).length > 0)) {
+    const racesList = extractRaces(q);
+    const racesCsv =
+      mentionsByRace(q) && racesList.length === 0
+        ? "white,black,asian,hispanic"
+        : racesList.join(",");
+
     return PlanSchema.parse({
       metricId: "unemployment_rate_by_race_us",
-      params: { races: "white,black,asian,hispanic", ...(start ? { start } : {}), ...(end ? { end } : {}) },
+      params: {
+        races: racesCsv || "white,black,asian,hispanic",
+        ...(start ? { start } : {}),
+        ...(end ? { end } : {})
+      },
       chart: { mark: "line", title: "Unemployment rate by race (US)" }
     });
   }

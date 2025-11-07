@@ -1,4 +1,3 @@
-// src/lib/runSource.ts
 import { CATALOG, type MetricId } from "@/lib/catalog";
 import type { AllowedSource } from "@/lib/allowlist";
 

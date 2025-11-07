@@ -1,41 +1,126 @@
+// bls.ts — CPS unemployment by race + NL parsing + datasets for your charts.
+
 import { z } from "zod";
 
+/* =========================
+ * Types & Schemas
+ * ========================= */
+export type Race = "white" | "black" | "asian" | "hispanic";
+
 export const BlsRaceParams = z.object({
-  races: z.array(z.enum(["white","black","asian","hispanic"])).default(["white","black","asian","hispanic"]),
+  races: z
+    .array(z.enum(["white", "black", "asian", "hispanic"]))
+    .default(["white", "black", "asian", "hispanic"]),
   startYear: z.number().int().default(1972),
   endYear: z.number().int().default(new Date().getFullYear()),
   seasonallyAdjusted: z.boolean().default(true),
 });
-
 export type BlsRaceParams = z.infer<typeof BlsRaceParams>;
-type Row = { date: string; value: number; series?: string; unit?: string };
 
-const SERIES: Record<"white"|"black"|"asian"|"hispanic", string> = {
-  white: "LNS14000003",
-  black: "LNS14000006",
-  asian: "LNS14000012",
+export type MonthlyRow = { date: string; value: number; series: string; unit: "%" };
+export type AnnualRow = { year: number; value: number; series: string; unit: "%" };
+
+export type FetchResult = { title: string; unit: string; rows: MonthlyRow[] };
+
+/* =========================
+ * Series IDs / helpers
+ * ========================= */
+const SERIES_SA: Record<Race, string> = {
+  white:    "LNS14000003",
+  black:    "LNS14000006",
+  asian:    "LNS14032183",      // Correct Asian SA series
   hispanic: "LNS14000009",
 };
+const PROPER: Record<Race,string> = {
+  white:"White", black:"Black", asian:"Asian", hispanic:"Hispanic"
+};
 
-export async function fetchBlsUnempByRace(p: BlsRaceParams): Promise<{ title: string; unit: string; rows: Row[] }> {
-  const seriesIds = p.races.map(r => SERIES[r]).join(",");
-  const url = `https://api.bls.gov/publicAPI/v2/timeseries/data/${seriesIds}?start_year=${p.startYear}&end_year=${p.endYear}`;
-  const resp = await fetch(url, { method: "GET", next: { revalidate: 86400 } });
-  if (!resp.ok) throw new Error(`BLS ${resp.status}`);
-  const json: any = await resp.json();
+const BLS_URL = "https://api.bls.gov/publicAPI/v2/timeseries/data/";
 
-  const rows: Row[] = [];
-  for (const s of json?.Results?.series ?? []) {
-    const id = s?.seriesID as string;
-    const race = (Object.entries(SERIES).find(([,v]) => v === id)?.[0] ?? id).toString();
-    for (const d of s?.data ?? []) {
-      const y = String(d?.year);
-      const m = String(d?.period).replace("M", "").padStart(2, "0");
-      const v = Number(d?.value);
-      if (!Number.isFinite(v)) continue;
-      rows.push({ date: `${y}-${m}-01`, value: v, series: race, unit: "%" });
+const toNSA = (id: string) => id.replace(/^LNS14/, "LNU04");
+const idFor = (race: Race, sa: boolean) => (sa ? SERIES_SA[race] : toNSA(SERIES_SA[race]));
+const raceFromId = (seriesId: string, sa: boolean): Race | string => {
+  for (const [race, saId] of Object.entries(SERIES_SA) as [Race,string][]) {
+    if ((sa ? saId : toNSA(saId)) === seriesId) return race;
+  }
+  return seriesId;
+};
+
+/* =========================
+ * Fetch
+ * ========================= */
+async function fetchBlsSeries(seriesIds: string[], startYear: number, endYear: number) {
+  const body: any = { seriesid: seriesIds, startyear: String(startYear), endyear: String(endYear) };
+  if (process?.env?.BLS_API_KEY) body.registrationkey = process.env.BLS_API_KEY;
+
+  const resp = await fetch(BLS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    next: { revalidate: 86400 },
+  });
+  if (!resp.ok) throw new Error(`BLS HTTP ${resp.status}`);
+  const json = await resp.json();
+  if (json?.status && json.status !== "REQUEST_SUCCEEDED") {
+    throw new Error(`BLS error: ${json?.status} | ${JSON.stringify(json?.message ?? json)}`);
+  }
+  return json;
+}
+
+/* =========================
+ * High-level API
+ * ========================= */
+export async function fetchBlsUnempByRace(p: BlsRaceParams): Promise<FetchResult> {
+  const params = BlsRaceParams.parse(p);
+  const ids = params.races.map(r => idFor(r, params.seasonallyAdjusted));
+  const json = await fetchBlsSeries(ids, params.startYear, params.endYear);
+
+  const rows: MonthlyRow[] = [];
+  const containers = Array.isArray(json?.Results) ? json.Results : [json?.Results].filter(Boolean);
+
+  for (const c of containers) {
+    for (const s of c?.series ?? []) {
+      const seriesId: string = s?.seriesID;
+      const race = raceFromId(seriesId, params.seasonallyAdjusted);
+      const label = (typeof race === "string" && (race as Race) in PROPER) ? PROPER[race as Race] : race;
+
+      for (const d of s?.data ?? []) {
+        const period = String(d?.period);
+        if (!/^M(0[1-9]|1[0-2])$/.test(period)) continue; // skip M13
+        const value = Number(d?.value);
+        if (!Number.isFinite(value)) continue;
+        rows.push({ date: `${d.year}-${period.slice(1)}-01`, value, series: String(label), unit: "%" });
+      }
     }
   }
   rows.sort((a,b) => a.date.localeCompare(b.date));
-  return { title: "Unemployment rate by race (CPS)", unit: "%", rows };
+  const scope = params.races.length === 1 ? PROPER[params.races[0]] : "Race";
+  return { title: `Unemployment rate — ${scope} (CPS, ${params.seasonallyAdjusted ? "SA" : "NSA"})`, unit: "%", rows };
 }
+
+/* =========================
+ * NL helpers (optional export if you use them elsewhere)
+ * ========================= */
+
+export function toAnnual(rows: MonthlyRow[]): AnnualRow[] {
+  const byKey = new Map<string, { sum: number; n: number; series: string; year: number }>();
+  for (const r of rows) {
+    const y = Number(r.date.slice(0,4));
+    const key = `${r.series}|${y}`;
+    const cur = byKey.get(key) ?? { sum: 0, n: 0, series: r.series, year: y };
+    cur.sum += r.value; cur.n += 1;
+    byKey.set(key, cur);
+  }
+  const out: AnnualRow[] = [];
+  for (const { sum, n, series, year } of byKey.values()) {
+    if (n > 0) out.push({ year, value: sum / n, series, unit: "%" });
+  }
+  out.sort((a,b) => a.year - b.year);
+  return out;
+}
+
+export default {
+  BlsRaceParams,
+  fetchBlsUnempByRace,
+  toAnnual,
+};
