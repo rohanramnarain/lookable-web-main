@@ -36,9 +36,11 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-
 What it understands right now
-Query types (by data source)
+
+This app uses a deterministic planner plus an optional LLM-based chooser to map natural-language queries to data fetches. The planner extracts structured facts (years, countries, lat/lon, races) and the chooser (Qwen) suggests which metric/source to use when available. Model outputs are validated and only used when confidence is high; otherwise the planner is authoritative.
+
+Supported query types (by data source)
 
 World Bank (single country)
 
@@ -54,11 +56,11 @@ Inflation CPI % Germany 2010–2024
 
 Unemployment rate France 2008–2013
 
-Notes: one country at a time (your planner passes a single ISO-3).
+Notes: one country at a time (the planner currently extracts a single ISO-3). The app will attempt to infer a country from the raw query if the planner doesn't provide one.
 
 BLS (US unemployment by race, monthly)
 
-Triggers: the word unemployment + either by race or a race word (black, white, asian, hispanic)
+Triggers: the word unemployment + either "by race" or a race word (black, white, asian, hispanic)
 
 Understands: since YYYY, YYYY–YYYY, last N years
 
@@ -70,7 +72,7 @@ Unemployment rate black since 2015
 
 Unemployment rate asian 2003–2010
 
-Notes: multiple races at once are fine (it colors by series), single race works too. (SA/NSA keywords aren’t plumbed through yet—see upgrades.)
+Notes: multiple races at once are fine (it colors by series), single race works too. The planner no longer silently falls back to a default metric — if intent can't be determined you'll see a helpful error asking to rephrase.
 
 OWID (single country, Life expectancy / CO₂)
 
@@ -82,7 +84,7 @@ Life expectancy Japan since 1950
 
 CO2 emissions China since 1990
 
-Notes: currently one country per query (planner extracts a single ISO-3). Multi-country comparisons are an easy upgrade below.
+Notes: currently one country per query. Multi-country comparisons are an easy upgrade.
 
 Open-Meteo (weather)
 
@@ -94,7 +96,7 @@ Examples that work:
 
 Temperature 34.05,-118.25
 
-Notes: It reads lat,lon if you include numbers; otherwise defaults to NYC.
+Notes: It reads lat,lon if you include numbers; otherwise defaults to NYC. Open-Meteo can be called client-side for responsiveness.
 
 EPA AirData (AQI by CBSA)
 
@@ -102,7 +104,7 @@ Trigger: aqi / air quality
 
 Example that works:
 
-Daily AQI for Los Angeles-Long Beach-Anaheim, CA in 2024
+Daily AQI for Los Angeles-Long-Beach-Anaheim, CA in 2024
 
 Notes: Needs the CBSA name as you pass it (exact-ish string).
 
@@ -116,7 +118,7 @@ Natural-language knobs it already parses
 
 Time windows: since 2000, 2010–2024, last 5 years
 
-Countries: by name or ISO-3 (via your /api/geo/iso3 route + fallback)
+Countries: by name or ISO-3 (via `/api/geo/iso3` + fallback)
 
 Races (BLS): black, white, asian, hispanic or phrase by race
 
@@ -126,7 +128,7 @@ Output you can count on
 
 Rows contain date (ISO YYYY-MM-DD) or year + value and, when applicable, a series label (e.g., race).
 
-Your chart wrapper auto-fixes y-axis titles.
+CSV export: the chart component exposes a "Download CSV" button that saves the data behind the chart. The CSV includes friendly column headers and top-line metadata (query, title, source, URL).
 
 For BLS, you already have a toAnnual() helper if you want annual averages.
 
