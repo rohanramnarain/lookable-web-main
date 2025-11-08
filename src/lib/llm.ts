@@ -227,14 +227,15 @@ export async function plan(query: string): Promise<Plan> {
     });
   }
 
-  // Default: unemployment rate (World Bank)
+  // Default behavior: if we can't confidently map the query to a known
+  // metric, throw an explanatory error so the UI can surface a helpful
+  // message instead of silently showing an unrelated default metric.
+  // Previously this returned `unemployment_rate`, which led to surprising
+  // charts when parsing failed.
   {
-    const iso = (await toISO3FromQuery(query)) ?? "USA";
-    return PlanSchema.parse({
-      metricId: "unemployment_rate",
-      params: { country: iso, ...(start ? { start } : {}), ...(end ? { end } : {}) },
-      chart: { mark: "line", title: "Unemployment rate" }
-    });
+    throw new Error(
+      "Could not understand the query. Try a clearer phrase (e.g. 'GDP per capita India 2000-2020') or pick an example from the suggestions."
+    );
   }
 }
 
