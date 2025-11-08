@@ -1,0 +1,6 @@
+{
+  "model": "Qwen2.5-Coder-1.5B-Instruct",
+  "format": "mock",
+  "shards": [],
+  "tokenizer": {}
+}

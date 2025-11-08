@@ -1,0 +1,34 @@
+Tongyi Qianwen LICENSE AGREEMENT
+
+Source: model distributor (e.g., Alibaba Cloud / Tongyi Qianwen). This file is a copy of the license/agreement that accompanies specific Qwen model weights. Keep this file alongside any Qwen model files you download.
+
+IMPORTANT: This is a repository copy of the model provider's license text (or an excerpt of it). Always rely on the model provider's hosted license page as the authoritative source. If you have a different or newer copy of this Agreement, replace this file with that copy and record the model version and source URL.
+
+--- BEGIN AGREEMENT (excerpt / summary) ---
+
+This Agreement governs your use of the Tongyi Qianwen model weights, associated configuration files, and any released materials (the "Materials"). Key terms below are a summary for maintainers — you must read the full Agreement before distributing or using the weights in production.
+
+Summary of important clauses (plain-English):
+
+- License grant: a limited, non-exclusive, worldwide, non-transferable, royalty-free license to use the Materials subject to the Agreement terms.
+
+- Redistribution & attribution: copies and redistributions of the Materials must include the Agreement and preserve required attribution/NOTICE text. If you redistribute model files, include this LICENSE file and any NOTICE content.
+
+- Commercial threshold: the Agreement defines a commercial-use threshold (e.g., a monthly active user threshold such as 100M MAU is commonly cited). If your deployment reaches or plans to reach that threshold you must contact the model owner (Alibaba) to obtain an express commercial license/authorization.
+
+- No-improvement restriction: you may NOT use the Materials, or model-generated outputs from the Materials, to improve, train, or develop other LLMs (including by using outputs as training data) unless the Agreement explicitly permits it.
+
+- Warranty / liability: Materials are provided "AS IS" with disclaimers and limitations of liability.
+
+- Governing law and dispute resolution: the Agreement typically specifies governing law in China (including a specified forum such as courts in Hangzhou). Consult legal counsel if this is a concern for your organization.
+
+--- END AGREEMENT (excerpt / summary) ---
+
+Authoritative source links (replace when you record the exact model release):
+- Qwen model pages (Hugging Face / Alibaba model hub) — check the model card for the "License" field and the raw link to the LICENSE file.
+
+Notes for maintainers:
+- If you download model weights for Qwen and add them to the repo or a release, copy the exact LICENSE file from the model source into `docs/licenses/` and update `docs/Licenses_explained.md` with the model version and source URL.
+- Keep a short manifest file close to any model artifacts that lists: model name, version/release id, source URL, date downloaded, and path to the license text.
+
+If you have a locally saved, authoritative copy of the full Tongyi Qianwen Agreement, replace this file with that full text.

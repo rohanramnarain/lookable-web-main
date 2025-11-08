@@ -2,11 +2,18 @@
 
 import { PlanSchema } from "./schema";
 import type { Plan } from "./schema";
+import { chooseSourceClient, hasUserConsented, ensureClientEngine } from "./webllm";
 
 /** Engine is optional; we keep API surface */
 let engine: any = null;
 export async function ensureEngine() {
-  // No-op engine so UI remains happy; swap in web-llm later if desired.
+  // If a client engine exists (or can be created) return it, otherwise null.
+  if (engine) return engine;
+  try {
+    engine = await ensureClientEngine();
+  } catch {
+    engine = null;
+  }
   return engine;
 }
 
@@ -222,5 +229,38 @@ export async function plan(query: string): Promise<Plan> {
       params: { country: iso, ...(start ? { start } : {}), ...(end ? { end } : {}) },
       chart: { mark: "line", title: "Unemployment rate" }
     });
+  }
+}
+
+/**
+ * Ask the server-side chooser for a suggested source/metric for the query.
+ * The server returns a small JSON object with { source, metricId, params, confidence, explain }.
+ * If anything fails, this returns an "unknown" suggestion with confidence 0.
+ */
+export async function chooseSource(query: string) {
+  // Prefer a client-side chooser if the user has consented and an engine exists.
+  try {
+    if (typeof window !== "undefined" && hasUserConsented()) {
+      try {
+        const clientSuggestion = await chooseSourceClient(query);
+        if (clientSuggestion && typeof clientSuggestion.confidence === "number" && clientSuggestion.confidence >= 0.7) {
+          return clientSuggestion;
+        }
+      } catch (e) {
+        // Ignore client chooser errors and fall back to server
+      }
+    }
+
+    const res = await fetch(`/api/choose-source`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+      cache: "no-store",
+    });
+    if (!res.ok) return { source: "unknown", metricId: null, params: null, confidence: 0, explain: null };
+    const js = await res.json();
+    return js;
+  } catch (err) {
+    return { source: "unknown", metricId: null, params: null, confidence: 0, explain: null };
   }
 }

@@ -2,7 +2,8 @@
 
 import { useEffect, useState, type CSSProperties } from "react";
 import Chart from "@/components/Chart";
-import { plan, ensureEngine } from "@/lib/llm";
+import { plan, ensureEngine, chooseSource } from "@/lib/llm";
+import ModelConsent from "@/components/ModelConsent";
 import { isAllowedSource } from "@/lib/allowlist";
 import { CATALOG, isMetricId } from "@/lib/catalog";
 import { fetchWDI } from "@/lib/fetchers/worldbank";
@@ -97,11 +98,11 @@ const SUGGESTION_GROUPS: SuggestionGroup[] = [
     "San Francisco hourly temperature tomorrow",
   ]},
   { label: "OWID", items: [
-    "Life expectancy Japan vs United States since 1950",
-    "CO2 emissions World and China since 1990",
+    "Life expectancy Japan since 1950",
+    "CO2 emissions China since 1990",
   ]},
   { label: "BLS", items: [
-    "Unemployment rate by race in the US since 2000",
+    "Black unemployment in the US since 2000",
   ]},
   { label: "EPA AirData", items: [
     "Daily AQI for Los Angeles-Long Beach-Anaheim, CA in 2024",
@@ -169,10 +170,36 @@ export default function Home() {
     setLoading(true);
 
     try {
-      const p = await plan(query);
+      // Ask the server-side chooser first (may be driven by Qwen). If it
+      // returns a high-confidence metricId we use it; otherwise fallback to
+      // the deterministic planner.
+      let p: any = null;
+      try {
+        const suggestion = await chooseSource(query);
+        if (suggestion && typeof suggestion.confidence === 'number' && suggestion.confidence >= 0.7 && suggestion.metricId && isMetricId(suggestion.metricId)) {
+          // Merge deterministic planner params (years, country, races) into the
+          // suggestion so syntactic facts from the query are not lost when the
+          // chooser returns only a metricId.
+          try {
+            const planner = await plan(query);
+            const plannerParams = (planner && (planner as any).params) || {};
+            const mergedParams = { ...(plannerParams || {}), ...(suggestion.params || {}) };
+            p = { metricId: suggestion.metricId, params: mergedParams, chart: {} };
+          } catch (err) {
+            // If planner fails for any reason, fall back to suggestion params.
+            p = { metricId: suggestion.metricId, params: suggestion.params || {}, chart: {} };
+          }
+        }
+      } catch (err) {
+        /* ignore chooser errors and fallback */
+      }
 
-      if (!isMetricId(p.metricId)) throw new Error("Planner chose an unknown metricId");
-      const def = CATALOG[p.metricId];
+      if (!p) {
+        p = await plan(query);
+      }
+
+  if (!isMetricId(p.metricId)) throw new Error("Planner chose an unknown metricId");
+  const def = (CATALOG as any)[p.metricId];
       if (!isAllowedSource(def.source)) throw new Error("Source not allowed");
       const mode: SourceMode =
         def.source === "worldbank" ? "worldbank" :
@@ -192,6 +219,9 @@ export default function Home() {
         const out = await fetchWDI(indicator, country, start, end);
         rows = out.rows;
         provenance = out.provenance;
+        // Prefer authoritative y-axis label from the fetcher
+        const fetchedYLabel = out.yLabel ?? undefined;
+        p.chart = { ...(p.chart || {}), y: { title: p.chart?.y?.title ?? fetchedYLabel }, title: p.chart?.title ?? undefined };
       } else if (mode === "openmeteo") {
         const merged = { ...(def.defaultParams || {}), ...(p.params || {}) };
         const lat = Number(merged.lat ?? 40.7128);
@@ -200,14 +230,20 @@ export default function Home() {
         const out = await fetchOpenMeteo(lat, lon);
         rows = out.rows;
         provenance = out.provenance;
+        const fetchedYLabel = out.yLabel ?? undefined;
+        p.chart = { ...(p.chart || {}), y: { title: p.chart?.y?.title ?? fetchedYLabel }, title: p.chart?.title ?? undefined };
       } else {
         // ✅ Generic sources (OWID, BLS, EPA AQI, Urban) via server action (no CORS).
         const out = await getDataForPlan({ metricId: p.metricId as string, params: p.params || {} });
         rows = out.rows as any[];
         provenance = out.provenance;
+        const fetchedYLabel = out.yLabel ?? out.title ?? undefined;
 
         if (!rows.length)
           throw new Error("No data returned for the selected metric/time range. Try a wider range.");
+
+        // Apply fetched labels into the chart meta so compileSpec can pick them up
+        p.chart = { ...(p.chart || {}), y: { title: p.chart?.y?.title ?? fetchedYLabel }, title: p.chart?.title ?? out.title };
 
         const vl = compileSpec(p.chart || {}, rows, "generic");
         setSpec(vl);
@@ -249,6 +285,10 @@ export default function Home() {
           ))}
         </div>
       </header>
+
+      <div style={{ marginBottom: 12 }}>
+        <ModelConsent onChange={(v) => { if (v) void ensureEngine(); }} />
+      </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
         <form className="toolbar" onSubmit={submit} aria-label="Ask for a chart">
