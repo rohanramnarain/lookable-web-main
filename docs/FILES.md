@@ -24,11 +24,11 @@ This document maps the key files and folders in the repository and explains resp
 - `app/layout.tsx` — root layout and metadata (fonts, light theme). Global CSS import (`./globals.css`) lives here.
 - `app/page.tsx` — main UI page (client component). Responsibilities:
   - Presents input and suggestions to the user.
-  - Calls `plan()` from `src/lib/llm.ts` to convert free text into a Plan.
-  - Ensures ML engine readiness via `ensureEngine()` (currently a no-op placeholder in `llm.ts`).
-  - For data retrieval, it either:
-    - Calls `fetchWDI` / `fetchOpenMeteo` directly (client-side fetch for these public APIs), or
-    - Calls the server action `getDataForPlan` (from `app/actions.ts`) for other sources to avoid CORS and expose server-only fetchers.
+  - Calls `plan()` from `src/lib/llm.ts` to convert free text into a Plan. The planner is deterministic and extracts structured facts (years, country, lat/lon, races).
+  - Integrates an optional LLM-based chooser via `chooseSource()` for natural-language routing. The client will attempt to initialize a web-LLM engine if the user consents (via `ModelConsent`) and prefer client-side inference; otherwise the app falls back to a server chooser (`/api/choose-source`). All model outputs are validated and must meet a confidence threshold to be accepted.
+  - Ensures ML engine readiness via `ensureEngine()` and `ModelConsent` UI for opt-in client-side inference. A local mock engine is provided for dev/testing.
+  - For data retrieval, it primarily uses the server action `getDataForPlan` (from `app/actions.ts`) so network calls to external data providers run server-side (avoids browser CORS and protects any keys). Open-Meteo remains safe to call client-side and may be used directly in some fast paths.
+  - Merges deterministic parser outputs with any model-suggested params so syntactic facts are preserved.
   - Compiles a minimal Vega-Lite spec (`compileSpec`) based on fetched rows and chart metadata and passes it to `src/components/Chart.tsx`.
   - Shows provenance (source, URL, license) returned by fetchers.
 
@@ -42,6 +42,7 @@ This document maps the key files and folders in the repository and explains resp
 
 - `app/api/geo/iso3/route.ts` — small server route that maps free-text country names to ISO3 codes.
   - Uses a local fallback regex table but attempts to lazy-import `src/lib/countryIndex.ts` (server-only) which has a comprehensive OWID-based matching index. Always returns 200 (never 500) and intentionally swallows failures in favor of a fallback. This is used by the planner (client-side) to normalize country inputs.
+  - NOTE: the route runs under the `nodejs` runtime. It previously declared `dynamic = "force-dynamic"` which conflicted with `next.config.ts` `output: 'export'`; that declaration has been removed so the route is compatible with the static-export config while still returning dynamic results at runtime.
 
 
 ## Core libraries (`src/lib`)
@@ -58,8 +59,10 @@ These files define the planner, catalog of metrics, fetchers, and the single-run
     - `extractYearsInclusive`, `extractLatLon`, `extractRaces`, and other small NLP helpers used by the planner.
   - Behavior:
     - Detects keywords (e.g., temperature → Open-Meteo; population → World Bank; unemployment by race → BLS; life expectancy → OWID).
-    - Falls back to a default metric (`unemployment_rate`) for unknown queries.
-  - Notes: This module runs on client components (it contains `fetch('/api/...')` calls) but relies on a server-side API for some lookups.
+    - On unknown or ambiguous queries the planner now throws a clear error so the UI can surface a helpful message instead of silently returning a default metric.
+  - LLM chooser integration:
+    - `chooseSource(query)` attempts to use a client-side model (Qwen) when the user has consented; if not available it calls the server chooser (`/api/choose-source`). The chooser returns structured JSON ({ metricId, params, confidence, explain }) — validated with zod and gated by a confidence threshold before being accepted.
+  - Notes: This module runs on client components (it contains `fetch('/api/...')` calls) but relies on server-side APIs for some lookups and server-side fetching for heavy data access.
 
 - `src/lib/schema.ts` — Zod schemas and TypeScript types
   - `ChartMetaSchema`, `PlanSchema` and `Plan` type. Use this to validate `plan()` outputs and ensure downstream fetchers can expect a consistent shape.
@@ -122,6 +125,8 @@ All fetchers return a normalized shape: { rows: Array<{date|time|year, value, se
   - Patch helpers:
     - `patchYAxisTitle` — infers friendly y-axis titles from spec meta or field names.
     - `patchColorLegend` — auto-adds color/legend for `series` field and improves tooltips.
+  - CSV export: Chart now provides a visible "Download CSV" button above the chart that exports the data used to render the visualization. The export extracts rows from the spec (handles layered specs, dedupes rows), creates friendly column headers (Year, Date, Value, Series), prepends provenance and the original user query as commented metadata, and triggers a browser download named after the user's query or the spec title.
+  - Note: the CSV export reads inline `data.values` from the Vega-Lite spec; if you rely on Vega transforms/aggregations you may prefer exporting via the Vega view API (`view.data(...)`) to capture the post-transform dataset.
 
 
 ## Where logic flows and what affects what
@@ -171,7 +176,7 @@ All fetchers return a normalized shape: { rows: Array<{date|time|year, value, se
 - `package.json` — deps & scripts
 - `next.config.ts` — build/output config
 - `app/layout.tsx` — fonts & page shell
-- `app/page.tsx` — main UI (planner invocation, chart compilation, direct fetches for some sources)
+- `app/page.tsx` — main UI (planner invocation, LLM chooser integration, chart compilation, server action usage for data fetches)
 - `app/actions.ts` — server action wrapper `getDataForPlan`
 - `app/api/geo/iso3/route.ts` — country name → ISO3 lookup (fast fallback + OWID-backed index)
 - `src/components/Chart.tsx` — Vega embedding and spec patches
