@@ -141,6 +141,10 @@ General guidance for data sources:
 - EPA AQS API docs: https://aqs.epa.gov/aqsweb/documents/data_api.html (API usage terms & technical notes)
 - Open-Meteo: https://open-meteo.com/en/docs (license & pricing links on their site)
 
+- Local copies included in this repository:
+  - `docs/licenses/APACHE-2.0.txt` — copy of the Apache License, Version 2.0 (for `@mlc-ai/web-llm`).
+  - `docs/licenses/Tongyi_Qianwen_LICENSE.txt` — repository copy / maintainer instructions for the Tongyi Qianwen Agreement (replace with the full authoritative copy if you keep model weights locally).
+
 Always rely on the original license text hosted by the dataset/model owner as the authoritative source.
 
 ---
