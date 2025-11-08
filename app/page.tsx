@@ -198,6 +198,27 @@ export default function Home() {
         p = await plan(query);
       }
 
+      // If the plan doesn't include a country for World Bank queries, try a
+      // lightweight inference using the server geo route against the raw
+      // user query. This helps capture country names like "India" when the
+      // deterministic planner missed them.
+      let inferredCountryFromQuery: string | undefined = undefined;
+      try {
+        const wantsWB = String(((p || {}).metricId || "") || "").length > 0 && (CATALOG as any)[(p || {}).metricId]?.source === "worldbank";
+        const hasCountry = (p && p.params && p.params.country) ? true : false;
+        if (wantsWB && !hasCountry) {
+          const res = await fetch(`/api/geo/iso3?q=${encodeURIComponent(query)}`, { cache: "no-store" });
+          if (res.ok) {
+            const j = await res.json();
+            if (j && j.iso3) inferredCountryFromQuery = j.iso3;
+          }
+        }
+      } catch (err) {
+        // Don't block the flow for geo lookup failures — we'll fall back to
+        // merged/default country logic below.
+        inferredCountryFromQuery = undefined;
+      }
+
   if (!isMetricId(p.metricId)) throw new Error("Planner chose an unknown metricId");
   const def = (CATALOG as any)[p.metricId];
       if (!isAllowedSource(def.source)) throw new Error("Source not allowed");
@@ -210,18 +231,23 @@ export default function Home() {
       const now = new Date().getFullYear();
 
       if (mode === "worldbank") {
+        // Use the server action to fetch World Bank data so requests are
+        // executed from the server (no CORS issues) and reuse existing
+        // runSource logic.
         const indicator = def.dataset!;
-        const merged = { ...(def.defaultParams || {}), ...(p.params || {}) };
-        const country = normalizeCountry(merged.country);
-        const start = safeYear(merged.start, now - 5);
-        const end = safeYear(merged.end, now);
+        const merged = {
+          ...(def.defaultParams || {}),
+          ...(inferredCountryFromQuery ? { country: inferredCountryFromQuery } : {}),
+          ...(p.params || {}),
+        };
 
-        const out = await fetchWDI(indicator, country, start, end);
-        rows = out.rows;
+        const out = await getDataForPlan({ metricId: p.metricId as string, params: merged });
+        rows = out.rows as any[];
         provenance = out.provenance;
-        // Prefer authoritative y-axis label from the fetcher
-        const fetchedYLabel = out.yLabel ?? undefined;
-        p.chart = { ...(p.chart || {}), y: { title: p.chart?.y?.title ?? fetchedYLabel }, title: p.chart?.title ?? undefined };
+        const fetchedYLabel = out.yLabel ?? out.title ?? undefined;
+
+        // Apply fetched labels into the chart meta so compileSpec can pick them up
+        p.chart = { ...(p.chart || {}), y: { title: p.chart?.y?.title ?? fetchedYLabel }, title: p.chart?.title ?? out.title };
       } else if (mode === "openmeteo") {
         const merged = { ...(def.defaultParams || {}), ...(p.params || {}) };
         const lat = Number(merged.lat ?? 40.7128);

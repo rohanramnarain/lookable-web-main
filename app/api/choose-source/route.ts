@@ -56,6 +56,12 @@ function heuristicSuggest(query: string): Suggestion {
       const n = Number(last[1]);
       if (Number.isFinite(n) && n > 0) return { start: now - (n - 1), end: now };
     }
+    // Single year like "1990"
+    const single = s.match(/\b(19|20)\d{2}\b/);
+    if (single) {
+      const y = Number(single[0]);
+      if (Number.isFinite(y)) return { start: y, end: y };
+    }
     return {};
   }
 

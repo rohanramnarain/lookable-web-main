@@ -2,7 +2,6 @@
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 /** Tiny local fallback so we never 500 for common countries */
 function fallbackIso3(q: string): string | undefined {
