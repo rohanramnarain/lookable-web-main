@@ -358,7 +358,7 @@ export default function Home() {
 
       {spec && (
         <section className="card" aria-live="polite" style={{ overflow: "hidden" }}>
-          <Chart spec={spec} />
+          <Chart spec={spec} filename={query} prov={prov} query={query} />
         </section>
       )}
 

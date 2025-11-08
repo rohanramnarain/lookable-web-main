@@ -5,9 +5,28 @@ import { useEffect, useRef } from "react";
 type VLSpec = import("vega-embed").VisualizationSpec;
 type VegaView = import("vega-embed").Result["view"];
 
-export default function Chart({ spec }: { spec: VLSpec }) {
+export default function Chart({ spec, filename, prov, query }: { spec: VLSpec; filename?: string; prov?: { source: string; url: string; license?: string } | null; query?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const viewRef = useRef<VegaView | null>(null);
+
+  function handleDownloadCsv() {
+    try {
+      const rows = extractRowsFromSpec(spec as any);
+      const name = (filename || fileNameFromSpec(spec as any) || "data").slice(0, 200);
+      const csv = toCsv(rows, { title: spec?.title, query, provenance: prov });
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${name}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      // ignore
+    }
+  }
 
   useEffect(() => {
     let disposed = false;
@@ -24,6 +43,39 @@ export default function Chart({ spec }: { spec: VLSpec }) {
         actions: { source: true, export: true },
       });
 
+      // Add a custom "Download CSV" action next to Vega's built-in actions.
+      try {
+        const actionsEl = ref.current.querySelector?.(".vega-actions");
+        if (actionsEl) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "vega-action";
+          btn.title = "Download data as CSV";
+          btn.innerText = "CSV";
+          btn.onclick = () => {
+            try {
+              const rows = extractRowsFromSpec(patched as any);
+              const name = (filename || fileNameFromSpec(patched as any) || "data").slice(0, 200);
+              const csv = toCsv(rows, { title: patched?.title, query, provenance: prov });
+              const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `${name}.csv`;
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              URL.revokeObjectURL(url);
+            } catch (e) {
+              // ignore
+            }
+          };
+          actionsEl.appendChild(btn);
+        }
+      } catch (e) {
+        /* no-op if DOM structure differs */
+      }
+
       if (disposed) {
         result?.view?.finalize();
         return;
@@ -38,7 +90,16 @@ export default function Chart({ spec }: { spec: VLSpec }) {
     };
   }, [spec]);
 
-  return <div ref={ref} />;
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+        <button type="button" onClick={handleDownloadCsv} className="btn btn-sm">
+          Download CSV
+        </button>
+      </div>
+      <div ref={ref} />
+    </div>
+  );
 }
 
 function clone<T>(x: T): T {
@@ -157,4 +218,101 @@ function inferFromTitle(title: any): string | undefined {
   if (!t) return undefined;
   const m = t.match(/^(?:[A-Z]{2,3}\s+)?(.+)$/);
   return m ? m[1] : undefined;
+}
+
+function extractRowsFromSpec(spec: any): any[] {
+  if (!spec) return [];
+  const out: any[] = [];
+  const pushVals = (vals: any) => {
+    if (Array.isArray(vals)) out.push(...vals);
+  };
+
+  if (Array.isArray(spec.layer)) {
+    for (const l of spec.layer) {
+      if (l?.data?.values) pushVals(l.data.values);
+      else if (spec?.data?.values) pushVals(spec.data.values);
+    }
+  } else if (spec?.data?.values) {
+    pushVals(spec.data.values);
+  }
+
+  // Deduplicate rows by JSON representation to avoid repeats across layers
+  const seen = new Set<string>();
+  const uniq: any[] = [];
+  for (const r of out) {
+    try {
+      const k = JSON.stringify(r);
+      if (!seen.has(k)) {
+        seen.add(k);
+        uniq.push(r);
+      }
+    } catch {
+      // fallback: include if stringify fails
+      uniq.push(r);
+    }
+  }
+  return uniq;
+}
+
+function toCsv(rows: any[], opts?: { title?: any; query?: string; provenance?: any }): string {
+  if (!rows || !rows.length) {
+    // Still emit metadata if available
+    const metaLines: string[] = [];
+    if (opts?.query) metaLines.push(`# Query: ${opts.query}`);
+    if (opts?.title) metaLines.push(`# Title: ${String(opts.title)}`);
+    if (opts?.provenance?.source) metaLines.push(`# Source: ${opts.provenance.source}`);
+    if (opts?.provenance?.url) metaLines.push(`# URL: ${opts.provenance.url}`);
+    return metaLines.join("\n");
+  }
+
+  // Collect headers (union of keys, preserving order from first row)
+  const first = rows[0] || {};
+  const headers = Object.keys(first);
+  for (const r of rows) {
+    for (const k of Object.keys(r)) {
+      if (!headers.includes(k)) headers.push(k);
+    }
+  }
+
+  const friendly: Record<string, string> = {
+    year: "Year",
+    date: "Date",
+    time: "Time",
+    value: "Value",
+    series: "Series",
+  };
+
+  const headerNames = headers.map((h) => friendly[h] ?? prettify(h));
+
+  const escape = (v: any) => {
+    if (v == null) return "";
+    const s = String(v);
+    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+
+  const metaLines: string[] = [];
+  if (opts?.query) metaLines.push(`# Query: ${opts.query}`);
+  if (opts?.title) metaLines.push(`# Title: ${String(opts.title)}`);
+  if (opts?.provenance?.source) metaLines.push(`# Source: ${opts.provenance.source}`);
+  if (opts?.provenance?.url) metaLines.push(`# URL: ${opts.provenance.url}`);
+
+  const lines = [] as string[];
+  if (metaLines.length) {
+    lines.push(...metaLines);
+    lines.push("");
+  }
+
+  lines.push(headerNames.join(","));
+  for (const r of rows) {
+    const row = headers.map((h) => escape((r as any)[h]));
+    lines.push(row.join(","));
+  }
+  return lines.join("\n");
+}
+
+function fileNameFromSpec(spec: any): string | undefined {
+  const t = spec?.title || (spec?.title && spec.title?.text) || undefined;
+  if (!t) return undefined;
+  return String(t).replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase();
 }
