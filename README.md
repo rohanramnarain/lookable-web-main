@@ -108,11 +108,6 @@ Daily AQI for Los Angeles-Long-Beach-Anaheim, CA in 2024
 
 Notes: Needs the CBSA name as you pass it (exact-ish string).
 
-Urban (NCES/IPEDS)
-
-It’s wired for a specific example and a generic fetcher; you can use your existing example:
-
-Grade 3 enrollment in DC, 2013 (NCES CCD)
 
 Natural-language knobs it already parses
 

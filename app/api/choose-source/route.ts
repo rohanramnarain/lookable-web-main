@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
-const AllowedSources = z.enum(["worldbank","openmeteo","owid","bls","epa_aqi","urban","unknown"]);
+const AllowedSources = z.enum(["worldbank","openmeteo","owid","bls","epa_aqi","unknown"]);
 
 const SuggestionSchema = z.object({
   source: AllowedSources,

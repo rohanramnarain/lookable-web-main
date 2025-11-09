@@ -327,16 +327,13 @@ const SUGGESTION_GROUPS: SuggestionGroup[] = [
   { label: "EPA AirData", items: [
     "Daily AQI for Los Angeles-Long Beach-Anaheim, CA in 2024",
   ]},
-  { label: "Urban (NCES/IPEDS)", items: [
-    "Grade 3 enrollment in DC, 2013 (NCES CCD)",
-  ]},
 ];
 
 /** ======= Source bubbles (dynamic from catalog) ======= */
-type BubbleKey = "worldbank" | "openmeteo" | "owid" | "bls" | "epa_aqi" | "urban";
+type BubbleKey = "worldbank" | "openmeteo" | "owid" | "bls" | "epa_aqi";
 
 function isBubbleKey(x: unknown): x is BubbleKey {
-  return ["worldbank","openmeteo","owid","bls","epa_aqi","urban"].includes(String(x));
+  return ["worldbank","openmeteo","owid","bls","epa_aqi"].includes(String(x));
 }
 
 const SOURCE_LABEL: Record<BubbleKey, string> = {
@@ -345,7 +342,7 @@ const SOURCE_LABEL: Record<BubbleKey, string> = {
   owid: "Our World in Data",
   bls: "US BLS",
   epa_aqi: "EPA AirData",
-  urban: "Urban (NCES/IPEDS)",
+ 
 };
 
 function dotStyleFor(key: BubbleKey): CSSProperties {
@@ -356,7 +353,7 @@ function dotStyleFor(key: BubbleKey): CSSProperties {
     owid: "#6b5b95",
     bls: "#2a9d8f",
     epa_aqi: "#e76f51",
-    urban: "#3a86ff",
+    
   };
   return { ...base, background: colors[key] };
 }
