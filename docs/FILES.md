@@ -128,21 +128,55 @@ All fetchers return a normalized shape: { rows: Array<{date|time|year, value, se
   - CSV export: Chart now provides a visible "Download CSV" button above the chart that exports the data used to render the visualization. The export extracts rows from the spec (handles layered specs, dedupes rows), creates friendly column headers (Year, Date, Value, Series), prepends provenance and the original user query as commented metadata, and triggers a browser download named after the user's query or the spec title.
   - Note: the CSV export reads inline `data.values` from the Vega-Lite spec; if you rely on Vega transforms/aggregations you may prefer exporting via the Vega view API (`view.data(...)`) to capture the post-transform dataset.
 
-## Vision classification (client-only)
+## Vision classification (client + optional server bridge)
 
-- `src/lib/vision/engine.ts` — client loader for a vision model via `@mlc-ai/web-llm`.
-  - Controlled by `NEXT_PUBLIC_ENABLE_VISION_STYLE` and a UI consent toggle.
-  - Tries to load `${NEXT_PUBLIC_VISION_MODEL_BASE_URL}/manifest.json` and optionally create a WebLLM engine instance (if available in your runtime).
-  - Exposes `classifyWithVision(img)` which prompts the model to return strict JSON `{chartType, confidence}` where `chartType` ∈ {line, area, bar, bar-horizontal, scatter, circle, pie, donut}. Returns `null` (abstain) if engine is missing or output invalid.
-- `src/lib/vision/classifyChartType.ts` — vision-only wrapper.
-  - Calls `classifyWithVision` and returns `{ chartType, usedVision: true }` on success.
-  - Returns `{ usedVision: false, confidence: 0 }` on abstain; no heuristic fallback.
-- `app/style/page.tsx` — style-from-image UI.
-  - Uploads an image, extracts a color palette, and invokes vision classification.
-  - Shows a status "Classifier: Vision model" or "Unavailable/abstained". Only updates the chart type when vision was actually used.
-- `public/models/vision/manifest.json` — placeholder manifest; replace with your WebLLM Qwen-VL build.
-- `.env.example` — contains the required environment flags (`NEXT_PUBLIC_ENABLE_VISION_STYLE`, `NEXT_PUBLIC_VISION_MODEL_BASE_URL`, `NEXT_PUBLIC_VISION_MODEL_ID`).
- - `server/vision_server.py` & `server/requirements.txt` — optional FastAPI bridge for Transformers weights before WebLLM conversion. Set `NEXT_PUBLIC_VISION_ENDPOINT` to use this path.
+Chart-type classification now supports two interchangeable paths:
+
+1. Client-only WebLLM (Qwen-VL build) — zero network calls
+2. Local Python FastAPI endpoint (Transformers) — fast to prototype before converting weights for WebLLM
+
+### Files
+
+- `src/lib/vision/engine.ts`
+  - Detects vision enablement via `NEXT_PUBLIC_ENABLE_VISION_STYLE` and user consent.
+  - Attempts to load WebLLM engine (`@mlc-ai/web-llm`) using `NEXT_PUBLIC_VISION_MODEL_BASE_URL` + `manifest.json`.
+  - Provides `classifyWithVision(img)` (WebLLM) and `classifyWithVisionEndpoint(img)` (HTTP POST) utilities.
+  - Endpoint URL is resolved from `NEXT_PUBLIC_VISION_ENDPOINT`, or dev overrides (localStorage/window) for quick iteration.
+  - Adds debug logs (`[vision] POST ...`) in development to surface classification attempts.
+- `src/lib/vision/classifyChartType.ts`
+  - Orchestrates classification; prefers endpoint if configured, else WebLLM engine, else abstains.
+  - Returns `{ chartType, confidence, usedVision }`. Callers ignore `chartType` when `usedVision` is false.
+- `app/style/page.tsx`
+  - Style-from-image page: uploads chart image → extracts palette → calls `classifyChartType` with `visionAllowed` true.
+  - Displays status: "Vision model" vs "Unavailable/abstained" with confidence percentage.
+  - Only persists detected chart type when vision was actually used, preventing heuristic drift.
+- `public/models/vision/manifest.json`
+  - Placeholder manifest for a WebLLM Qwen-VL conversion. Replace with your real build artifacts (weights/shards) to enable client-only inference.
+- `server/vision_server.py` & `server/requirements.txt`
+  - FastAPI endpoint `/classify` (POST + OPTIONS) for local Transformers inference (`Qwen/Qwen3-VL-2B-Instruct`).
+  - Injects CORS headers explicitly; broad dev CORS (`Access-Control-Allow-Origin: *`).
+  - Prompt enforces strict JSON `{"chartType":"...","confidence":0..1}`; includes fallback text→label mapping when model deviates.
+  - Returns `chartType: null` + `confidence: 0` on abstain.
+- `.env.example` / `.env.local`
+  - Vision flags & endpoint: `NEXT_PUBLIC_ENABLE_VISION_STYLE`, `NEXT_PUBLIC_VISION_MODEL_BASE_URL`, `NEXT_PUBLIC_VISION_MODEL_ID`, `NEXT_PUBLIC_VISION_ENDPOINT`.
+
+### Flow
+
+`/style` upload → canvas normalization → palette extraction → `classifyChartType()` → if vision success → update style `chartType`.
+
+If `NEXT_PUBLIC_VISION_ENDPOINT` is set, endpoint classification is tried first (easier dev); remove it to force WebLLM path.
+
+### Debugging tips
+
+- Console logs `[vision] POST <endpoint>` indicate an attempt; if no response or CORS error, check `server/vision_server.py` CORS settings.
+- Use DevTools Network to verify OPTIONS + POST both return 200 and JSON with `chartType`.
+- Local override (without restart): `localStorage.setItem('VISION_ENDPOINT','http://127.0.0.1:8079/classify')` forces endpoint usage if env var wasn't inlined.
+
+### Extending
+
+- Add additional chart types by updating `ALLOWED_CHART_TYPES` (`src/lib/state/style.ts`), endpoints' `ALLOWED` set, and prompt instructions.
+- Tighten model mapping by extending `map_text_to_label()` for synonyms (e.g., "ring" → donut, "bubble" → scatter).
+- For production, restrict CORS origins to the deployed UI domain and remove dev localStorage overrides.
 
 
 ## Where logic flows and what affects what

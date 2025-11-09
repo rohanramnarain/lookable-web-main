@@ -212,42 +212,62 @@ Env flags (optional):
 - `NEXT_PUBLIC_ENABLE_VISION_STYLE` — gate future client vision model usage for chart-type classification.
 - `NEXT_PUBLIC_ENABLE_CLIENT_BADGE` — gate the badges UI (on by default in dev).
 
-### Enabling the vision model (Qwen-VL locally)
+### Vision chart-type classification
 
-To use a local vision model for chart-type classification:
+The style-from-image feature can classify chart types using either:
 
-1) Set environment variables (e.g., in `.env.local`):
+1. A client-only WebLLM engine (Qwen-VL build you provide) — zero network traffic after load.
+2. A local Python FastAPI endpoint running Transformers weights — easiest path before converting to WebLLM.
 
-```
+Classification returns one of: `line | area | bar | bar-horizontal | scatter | circle | pie | donut` plus a confidence. The UI only updates the chart type when a vision model was actually used.
+
+#### Option A: Client-only WebLLM
+
+1. Add to `.env.local`:
+```bash
 NEXT_PUBLIC_ENABLE_VISION_STYLE=1
 NEXT_PUBLIC_VISION_MODEL_BASE_URL=/models/vision
-# Optional override if your engine expects a specific ID label
 NEXT_PUBLIC_VISION_MODEL_ID=Qwen2.5-VL-7B-Instruct
 ```
+2. Supply a `manifest.json` and weights in `public/models/vision/` (MLC WebLLM format).
+3. Restart `npm run dev` so Next.js inlines env vars.
+4. Visit `/style`, upload an image. If the engine loads you’ll see “Classifier: Vision model (confidence …%)”. Otherwise it abstains.
 
-2) Provide model files in `public/models/vision/` with a `manifest.json` compatible with `@mlc-ai/web-llm`. The app will request `${NEXT_PUBLIC_VISION_MODEL_BASE_URL}/manifest.json` at runtime. Place weights/shards as required by your build.
+#### Option B: Local Python endpoint (fast start)
 
-3) On the Home page, check the “Enable client-side vision classification” consent. Then open `/style`, upload an image, and the classifier will show “Vision model” when active. If the engine abstains or is not available, the UI indicates “Unavailable/abstained,” and the chart type remains unchanged until you pick one.
+1. In `server/` use provided `vision_server.py` + `requirements.txt`.
+2. Install & run:
+```bash
+cd server
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn vision_server:app --host 127.0.0.1 --port 8079
+```
+3. Add to `.env.local`:
+```bash
+NEXT_PUBLIC_ENABLE_VISION_STYLE=1
+NEXT_PUBLIC_VISION_ENDPOINT=http://127.0.0.1:8079/classify
+```
+4. Restart `npm run dev`, upload image on `/style`.
 
-Note: The app does not ship large model weights. You must supply your own Qwen-VL (or compatible) WebLLM build. If you prefer, you can disable vision entirely by omitting the env flag.
+If both endpoint and WebLLM are configured the endpoint is preferred. Remove `NEXT_PUBLIC_VISION_ENDPOINT` to force WebLLM.
 
-### Alternative: Python endpoint bridge (fast start)
+#### Debugging
 
-If you have Transformers weights but not a WebLLM build yet:
+- Open DevTools Console: look for `[vision] POST http://127.0.0.1:8079/classify`.
+- Network tab should show OPTIONS (preflight) + POST with 200 and JSON body `{chartType, confidence}`.
+- If CORS errors appear, confirm server restarted after edits; dev server now injects explicit `Access-Control-Allow-Origin: *` headers.
+- Quick manual test:
+```bash
+curl -i -F file=@/path/to/chart.png http://127.0.0.1:8079/classify
+```
 
-1) Create `server/vision_server.py` (see repository) and `server/requirements.txt`.
-2) Install deps and run:
-	```bash
-	cd server
-	python3 -m venv .venv && source .venv/bin/activate
-	pip install -r requirements.txt
-	uvicorn vision_server:app --host 127.0.0.1 --port 8079
-	```
-3) Set in `.env.local`:
-	```
-	NEXT_PUBLIC_ENABLE_VISION_STYLE=1
-	NEXT_PUBLIC_VISION_ENDPOINT=http://127.0.0.1:8079/classify
-	```
-4) Restart `npm run dev`, consent to vision in the UI, and upload an image.
+#### Extending
 
-When `NEXT_PUBLIC_VISION_ENDPOINT` is set the app prefers the Python server for classification; remove it once you convert to a WebLLM build.
+- Add synonyms to `map_text_to_label()` in `vision_server.py` for better fallback (e.g., “ring” → donut, “bubble” → scatter).
+- Restrict CORS in production (e.g., only your deployed domain) and remove debug console logs.
+- Introduce additional chart types by updating `ALLOWED_CHART_TYPES` in `src/lib/state/style.ts` and the server’s `ALLOWED` set.
+
+#### Safety & scope
+
+Classification doesn’t extract or infer data values — it only guesses presentation style (chart family). Deterministic data fetching remains unchanged and authoritative.
