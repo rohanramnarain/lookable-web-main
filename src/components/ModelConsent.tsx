@@ -1,12 +1,19 @@
 "use client";
 
 import React from "react";
-import { hasUserConsented, setUserConsent } from "../lib/webllm";
+import { hasUserConsented, setUserConsent, hasVisionConsented, setVisionConsent } from "../lib/webllm";
 
 export default function ModelConsent({ onChange }: { onChange?: (v: boolean) => void }) {
   const [consented, setConsented] = React.useState<boolean>(() => {
     try {
       return hasUserConsented();
+    } catch {
+      return false;
+    }
+  });
+  const [vision, setVision] = React.useState<boolean>(() => {
+    try {
+      return hasVisionConsented();
     } catch {
       return false;
     }
@@ -38,6 +45,21 @@ export default function ModelConsent({ onChange }: { onChange?: (v: boolean) => 
         <a href="/docs/licenses/Tongyi_Qianwen_LICENSE.txt" target="_blank" rel="noreferrer" style={{ marginLeft: "auto" }}>
           View license
         </a>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+        <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input
+            type="checkbox"
+            checked={vision}
+            onChange={(e) => {
+              const v = e.target.checked;
+              setVisionConsent(v);
+              setVision(v);
+            }}
+          />
+          <span>Enable client-side vision classification for chart type (requires separate model).</span>
+        </label>
       </div>
     </div>
   );

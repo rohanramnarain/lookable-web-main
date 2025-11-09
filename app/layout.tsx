@@ -42,6 +42,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className="theme-light">{/* force light theme */}
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        <nav style={{ position: "sticky", top: 0, zIndex: 10, background: "#fff", borderBottom: "1px solid #eee" }}>
+          <div className="container" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0" }}>
+            <a href="/" className="page-title" style={{ fontSize: 16, textDecoration: "none" }}>Lookable</a>
+            <div style={{ display: "flex", gap: 12 }}>
+              <a href="/" className="chip">Home</a>
+              <a href="/style" className="chip">Style from image</a>
+            </div>
+          </div>
+        </nav>
         {children}
       </body>
     </html>

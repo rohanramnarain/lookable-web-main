@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type CSSProperties } from "react";
 import Chart from "@/components/Chart";
+import ClientModeBadge from "@/components/ClientModeBadge";
 import { plan, ensureEngine, chooseSource } from "@/lib/llm";
 import ModelConsent from "@/components/ModelConsent";
 import { isAllowedSource } from "@/lib/allowlist";
@@ -10,6 +11,7 @@ import { fetchWDI } from "@/lib/fetchers/worldbank";
 import { fetchOpenMeteo } from "@/lib/fetchers/openmeteo";
 // ✅ use server action for generic sources (OWID/BLS/EPA/Urban)
 import { getDataForPlan } from "./actions";
+import { getStyleConfig, setClientOnly } from "@/lib/state/style";
 
 /** Normalize common country inputs to ISO-3 for World Bank. */
 function normalizeCountry(input?: unknown) {
@@ -64,7 +66,16 @@ function compileSpec(chart: any, rows: any[], source: SourceMode) {
     xType = axis.xType;
   }
 
-  const mark = chart?.mark || "line";
+  const styleCfg = getStyleConfig();
+  const chosenType = styleCfg?.chartType || (chart?.mark as string | undefined);
+  let mark: any = chart?.mark || "line";
+  if (chosenType) {
+    if (chosenType === "bar-horizontal") {
+      mark = { type: "bar", orient: "horizontal" };
+    } else if (["line", "area", "bar", "scatter"].includes(String(chosenType))) {
+      mark = String(chosenType);
+    }
+  }
   const title = chart?.title;
 
   const fallbackY =
@@ -72,16 +83,104 @@ function compileSpec(chart: any, rows: any[], source: SourceMode) {
     (typeof title === "string" ? title.replace(/^(?:[A-Z]{2,3}\s+)?/, "") : undefined) ??
     "Value";
 
-  return {
+  // If user selected bars, ensure a categorical axis and correct orientation
+  const wantsBar = chosenType === "bar" || chosenType === "bar-horizontal" || mark === "bar" || (typeof mark === "object" && mark?.type === "bar");
+  let encodingX: any = { field: xField, type: xType, title: chart?.x?.title };
+  let encodingY: any = { field: yField, type: yType, title: fallbackY };
+
+  if (wantsBar) {
+    // choose categorical dimension: prefer 'year'; else bucket 'date' by year; else keep existing xField
+    const sample = cleaned.find((r) => r && typeof r === "object") || {};
+    const hasYear = "year" in sample;
+    const hasDate = "date" in sample;
+
+    const catOnX = chosenType !== "bar-horizontal"; // vertical bars => category on X, value on Y
+    if (catOnX) {
+      if (hasYear) {
+        encodingX = { field: "year", type: "ordinal", title: chart?.x?.title };
+        encodingY = { field: "value", type: "quantitative", title: fallbackY };
+      } else if (hasDate) {
+        encodingX = { field: "date", type: "temporal", timeUnit: "year", title: chart?.x?.title || "Year" };
+        encodingY = { field: "value", type: "quantitative", title: fallbackY };
+      } else {
+        // fallback to detected axis as category
+        encodingX = { field: xField, type: xType, title: chart?.x?.title };
+        encodingY = { field: "value", type: "quantitative", title: fallbackY };
+      }
+    } else {
+      // horizontal bars => value on X, category on Y
+      if (hasYear) {
+        encodingX = { field: "value", type: "quantitative", title: fallbackY };
+        encodingY = { field: "year", type: "ordinal", title: chart?.x?.title || "Year" };
+      } else if (hasDate) {
+        encodingX = { field: "value", type: "quantitative", title: fallbackY };
+        encodingY = { field: "date", type: "temporal", timeUnit: "year", title: chart?.x?.title || "Year" };
+      } else {
+        encodingX = { field: "value", type: "quantitative", title: fallbackY };
+        encodingY = { field: xField, type: xType, title: chart?.x?.title };
+      }
+    }
+  }
+
+  const spec: any = {
     $schema: "https://vega.github.io/schema/vega-lite/v5.json",
     ...(title ? { title } : {}),
     mark,
     encoding: {
-      x: { field: xField, type: xType, title: chart?.x?.title },
-      y: { field: yField, type: yType, title: fallbackY },
+      x: encodingX,
+      y: encodingY,
     },
     data: { values: cleaned },
   };
+
+  // Apply style overrides via config/encoding
+  if (styleCfg) {
+    spec.config = spec.config || {};
+    if (styleCfg.colorPalette && styleCfg.colorPalette.length) {
+      spec.config.range = { ...(spec.config.range || {}), category: styleCfg.colorPalette.slice() };
+      // If we already have a color encoding, ensure it respects the palette
+      if (spec.encoding) {
+        const enc: any = spec.encoding;
+        if (enc.color) enc.color.scale = { ...(enc.color.scale || {}), range: styleCfg.colorPalette.slice() };
+      }
+      // If there is no color encoding (single-series), set mark color to the first palette color
+      const first = styleCfg.colorPalette[0];
+      if (first && (!spec.encoding || !(spec.encoding as any).color)) {
+        if (typeof spec.mark === "string") {
+          spec.mark = { type: spec.mark, color: first };
+        } else {
+          spec.mark = { ...(spec.mark || {}), color: first };
+        }
+      }
+    }
+    if (styleCfg.legendPosition) {
+      spec.config.legend = { ...(spec.config.legend || {}), orient: styleCfg.legendPosition };
+    }
+    if (typeof styleCfg.fontSize === "number") {
+      const fs = styleCfg.fontSize;
+      spec.config.axis = { ...(spec.config.axis || {}), labelFontSize: fs, titleFontSize: Math.max(12, Math.round(fs * 1.1)) };
+      spec.config.legend = { ...(spec.config.legend || {}), labelFontSize: fs, titleFontSize: Math.max(12, Math.round(fs * 1.1)) };
+      spec.config.header = { ...(spec.config.header || {}), labelFontSize: fs };
+    }
+    if (typeof styleCfg.grid === "boolean") {
+      spec.config.axis = { ...(spec.config.axis || {}), grid: styleCfg.grid };
+    }
+    if (styleCfg.background) {
+      spec.config.background = styleCfg.background;
+    }
+    if (typeof styleCfg.strokeWidth === "number") {
+      if (typeof spec.mark === "string") {
+        spec.mark = { type: spec.mark, strokeWidth: styleCfg.strokeWidth };
+      } else {
+        spec.mark = { ...(spec.mark || {}), strokeWidth: styleCfg.strokeWidth };
+      }
+    }
+    if (typeof styleCfg.pointSize === "number") {
+      spec.config.point = { ...(spec.config.point || {}), size: styleCfg.pointSize };
+    }
+  }
+
+  return spec;
 }
 
 /** ======= Suggestions (pre-select prompts) ======= */
@@ -164,6 +263,8 @@ export default function Home() {
   }, []);
 
   async function run() {
+  // Assume client-only at start; if we use server actions for fetches, we'll mark mixed.
+  try { setClientOnly(true); } catch {}
     setError(null);
     setSpec(null);
     setProv(null);
@@ -241,14 +342,15 @@ export default function Home() {
           ...(p.params || {}),
         };
 
-        const out = await getDataForPlan({ metricId: p.metricId as string, params: merged });
+  const out = await getDataForPlan({ metricId: p.metricId as string, params: merged });
+  try { setClientOnly(false); } catch {}
         rows = out.rows as any[];
         provenance = out.provenance;
         const fetchedYLabel = out.yLabel ?? out.title ?? undefined;
 
         // Apply fetched labels into the chart meta so compileSpec can pick them up
         p.chart = { ...(p.chart || {}), y: { title: p.chart?.y?.title ?? fetchedYLabel }, title: p.chart?.title ?? out.title };
-      } else if (mode === "openmeteo") {
+  } else if (mode === "openmeteo") {
         const merged = { ...(def.defaultParams || {}), ...(p.params || {}) };
         const lat = Number(merged.lat ?? 40.7128);
         const lon = Number(merged.lon ?? -74.0060);
@@ -261,6 +363,7 @@ export default function Home() {
       } else {
         // ✅ Generic sources (OWID, BLS, EPA AQI, Urban) via server action (no CORS).
         const out = await getDataForPlan({ metricId: p.metricId as string, params: p.params || {} });
+        try { setClientOnly(false); } catch {}
         rows = out.rows as any[];
         provenance = out.provenance;
         const fetchedYLabel = out.yLabel ?? out.title ?? undefined;
@@ -314,6 +417,9 @@ export default function Home() {
 
       <div style={{ marginBottom: 12 }}>
         <ModelConsent onChange={(v) => { if (v) void ensureEngine(); }} />
+        <div style={{ marginTop: 8 }}>
+          <ClientModeBadge />
+        </div>
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>

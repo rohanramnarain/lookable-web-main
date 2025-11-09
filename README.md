@@ -193,3 +193,18 @@ If you want comparisons there too, adjust your WDI fetcher & runSource to accept
 Aliases like ‘UK’, ‘South Korea’, ‘Ivory Coast’, ‘World’
 
 Your server ISO index already handles many of these; just make sure your route returns codes for both “name” and common nicknames. (You already have fallbacks; adding a few more would be trivial.)
+
+## Style from image (client-only, no training)
+
+- New tab at `/style` lets you upload a chart image and save a style preset.
+- The app extracts a color palette on-device and guesses the chart type with heuristics (you can override).
+- No data/facts are taken from the image; only styling is applied. Your existing query → fetch → compile flow stays the same.
+- Saved style presets are applied when you generate a chart on the home tab.
+
+Badges (top of the home page):
+- Vision: Used/Fallback — whether a vision classifier was used (if/when enabled) to pick chart type.
+- Inference: Client-only/Mixed — whether the end-to-end run stayed on-device (e.g., Open-Meteo) or used server actions for fetching (e.g., World Bank/OWID/BLS/EPA/Urban).
+
+Env flags (optional):
+- `NEXT_PUBLIC_ENABLE_VISION_STYLE` — gate future client vision model usage for chart-type classification.
+- `NEXT_PUBLIC_ENABLE_CLIENT_BADGE` — gate the badges UI (on by default in dev).

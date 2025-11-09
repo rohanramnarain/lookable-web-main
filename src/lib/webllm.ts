@@ -10,6 +10,7 @@
  */
 
 const CONSENT_KEY = "lookable:model:consent";
+const VISION_CONSENT_KEY = "lookable:vision:consent";
 
 export function hasUserConsented(): boolean {
   try {
@@ -22,6 +23,20 @@ export function hasUserConsented(): boolean {
 export function setUserConsent(v: boolean) {
   try {
     localStorage.setItem(CONSENT_KEY, v ? "1" : "0");
+  } catch {}
+}
+
+export function hasVisionConsented(): boolean {
+  try {
+    return localStorage.getItem(VISION_CONSENT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function setVisionConsent(v: boolean) {
+  try {
+    localStorage.setItem(VISION_CONSENT_KEY, v ? "1" : "0");
   } catch {}
 }
 
