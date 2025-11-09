@@ -197,7 +197,10 @@ Your server ISO index already handles many of these; just make sure your route r
 ## Style from image (client-only, no training)
 
 - New tab at `/style` lets you upload a chart image and save a style preset.
-- The app extracts a color palette on-device and guesses the chart type with heuristics (you can override).
+- Choose from more chart types: Line, Area, Bar, Bar (Horizontal), Scatter, Circle (points), Pie, Donut.
+- Pie/Donut require a categorical breakdown (e.g., multiple series like “by race”). If unavailable, the app safely falls back to Bar.
+- The app extracts a color palette on-device.
+- Chart-type classification is vision-only when enabled; no heuristic fallback is used.
 - No data/facts are taken from the image; only styling is applied. Your existing query → fetch → compile flow stays the same.
 - Saved style presets are applied when you generate a chart on the home tab.
 
@@ -208,3 +211,43 @@ Badges (top of the home page):
 Env flags (optional):
 - `NEXT_PUBLIC_ENABLE_VISION_STYLE` — gate future client vision model usage for chart-type classification.
 - `NEXT_PUBLIC_ENABLE_CLIENT_BADGE` — gate the badges UI (on by default in dev).
+
+### Enabling the vision model (Qwen-VL locally)
+
+To use a local vision model for chart-type classification:
+
+1) Set environment variables (e.g., in `.env.local`):
+
+```
+NEXT_PUBLIC_ENABLE_VISION_STYLE=1
+NEXT_PUBLIC_VISION_MODEL_BASE_URL=/models/vision
+# Optional override if your engine expects a specific ID label
+NEXT_PUBLIC_VISION_MODEL_ID=Qwen2.5-VL-7B-Instruct
+```
+
+2) Provide model files in `public/models/vision/` with a `manifest.json` compatible with `@mlc-ai/web-llm`. The app will request `${NEXT_PUBLIC_VISION_MODEL_BASE_URL}/manifest.json` at runtime. Place weights/shards as required by your build.
+
+3) On the Home page, check the “Enable client-side vision classification” consent. Then open `/style`, upload an image, and the classifier will show “Vision model” when active. If the engine abstains or is not available, the UI indicates “Unavailable/abstained,” and the chart type remains unchanged until you pick one.
+
+Note: The app does not ship large model weights. You must supply your own Qwen-VL (or compatible) WebLLM build. If you prefer, you can disable vision entirely by omitting the env flag.
+
+### Alternative: Python endpoint bridge (fast start)
+
+If you have Transformers weights but not a WebLLM build yet:
+
+1) Create `server/vision_server.py` (see repository) and `server/requirements.txt`.
+2) Install deps and run:
+	```bash
+	cd server
+	python3 -m venv .venv && source .venv/bin/activate
+	pip install -r requirements.txt
+	uvicorn vision_server:app --host 127.0.0.1 --port 8079
+	```
+3) Set in `.env.local`:
+	```
+	NEXT_PUBLIC_ENABLE_VISION_STYLE=1
+	NEXT_PUBLIC_VISION_ENDPOINT=http://127.0.0.1:8079/classify
+	```
+4) Restart `npm run dev`, consent to vision in the UI, and upload an image.
+
+When `NEXT_PUBLIC_VISION_ENDPOINT` is set the app prefers the Python server for classification; remove it once you convert to a WebLLM build.

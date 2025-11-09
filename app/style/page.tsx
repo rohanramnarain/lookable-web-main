@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { classifyChartType } from "@/lib/vision/classifyChartType";
-import { setStyleConfig, setVisionUsed, type StyleConfig, type ChartType } from "@/lib/state/style";
+import { ALLOWED_CHART_TYPES, setStyleConfig, setVisionUsed, type StyleConfig, ChartType } from "@/lib/state/style";
 
 type PaletteColor = { hex: string; count: number };
 
@@ -51,12 +51,14 @@ export default function StyleFromImagePage() {
       const pal = await extractPalette(canvas, 6);
       setPalette(pal);
 
-      // Classify chart type (heuristics for now)
-  const cls = await classifyChartType(canvas);
-  setChartType(cls.chartType as ChartType);
-  setConfidence(cls.confidence);
-  setUsedVision(!!cls.usedVision);
-  setVisionUsed(!!cls.usedVision);
+      // Classify chart type (vision-only; no heuristic fallback)
+      const cls = await classifyChartType({ image: canvas, visionAllowed: true });
+      if (cls.usedVision) {
+        setChartType(cls.chartType as ChartType);
+      }
+    setConfidence(cls.confidence);
+    setUsedVision(!!cls.usedVision);
+    setVisionUsed(!!cls.usedVision);
     };
     img.onerror = () => {
       setPreviewUrl(null);
@@ -106,22 +108,26 @@ export default function StyleFromImagePage() {
               </section>
 
               <section style={{ marginBottom: 12 }}>
-                <h3>Chart type</h3>
-                <select value={chartType} onChange={(e) => setChartType(e.target.value as ChartType)}>
-                  <option value="line">Line</option>
-                  <option value="area">Area</option>
-                  <option value="bar">Bar</option>
-                  <option value="bar-horizontal">Bar (Horizontal)</option>
-                  <option value="scatter">Scatter</option>
+                <label className="block text-sm font-medium">Chart type</label>
+                <select
+                  value={chartType}
+                  onChange={(e) => setChartType(e.target.value as ChartType)}
+                  className="select"
+                >
+                  {ALLOWED_CHART_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {t === 'bar-horizontal' ? 'Bar (Horizontal)' :
+                       t === 'circle' ? 'Circle (Points)' :
+                       t.charAt(0).toUpperCase() + t.slice(1)}
+                    </option>
+                  ))}
                 </select>
-                <div style={{ display: "inline-flex", gap: 10, alignItems: "center", marginLeft: 8 }}>
-                  {confidence != null && (
-                    <span style={{ opacity: 0.7, fontSize: 12 }}>confidence: {(confidence * 100).toFixed(0)}%</span>
-                  )}
-                  <span className="badge" title="Which classifier produced the chart type">
-                    Classifier: {usedVision ? "Vision" : "Heuristics"}
-                  </span>
-                </div>
+                <p className="text-xs text-muted">
+                  Note: Pie/Donut require multiple series (e.g., “by race”). If unavailable, it falls back to Bar.
+                </p>
+                <p className="text-xs" style={{ marginTop: 6, color: usedVision ? '#0a7' : '#a70' }}>
+                  Classifier: {usedVision ? 'Vision model' : 'Unavailable/abstained'}{confidence !== null ? ` (confidence ${Math.round((confidence||0)*100)}%)` : ''}
+                </p>
               </section>
 
               <section style={{ display: "grid", gridTemplateColumns: "max-content 1fr", gap: 8 }}>

@@ -128,6 +128,22 @@ All fetchers return a normalized shape: { rows: Array<{date|time|year, value, se
   - CSV export: Chart now provides a visible "Download CSV" button above the chart that exports the data used to render the visualization. The export extracts rows from the spec (handles layered specs, dedupes rows), creates friendly column headers (Year, Date, Value, Series), prepends provenance and the original user query as commented metadata, and triggers a browser download named after the user's query or the spec title.
   - Note: the CSV export reads inline `data.values` from the Vega-Lite spec; if you rely on Vega transforms/aggregations you may prefer exporting via the Vega view API (`view.data(...)`) to capture the post-transform dataset.
 
+## Vision classification (client-only)
+
+- `src/lib/vision/engine.ts` — client loader for a vision model via `@mlc-ai/web-llm`.
+  - Controlled by `NEXT_PUBLIC_ENABLE_VISION_STYLE` and a UI consent toggle.
+  - Tries to load `${NEXT_PUBLIC_VISION_MODEL_BASE_URL}/manifest.json` and optionally create a WebLLM engine instance (if available in your runtime).
+  - Exposes `classifyWithVision(img)` which prompts the model to return strict JSON `{chartType, confidence}` where `chartType` ∈ {line, area, bar, bar-horizontal, scatter, circle, pie, donut}. Returns `null` (abstain) if engine is missing or output invalid.
+- `src/lib/vision/classifyChartType.ts` — vision-only wrapper.
+  - Calls `classifyWithVision` and returns `{ chartType, usedVision: true }` on success.
+  - Returns `{ usedVision: false, confidence: 0 }` on abstain; no heuristic fallback.
+- `app/style/page.tsx` — style-from-image UI.
+  - Uploads an image, extracts a color palette, and invokes vision classification.
+  - Shows a status "Classifier: Vision model" or "Unavailable/abstained". Only updates the chart type when vision was actually used.
+- `public/models/vision/manifest.json` — placeholder manifest; replace with your WebLLM Qwen-VL build.
+- `.env.example` — contains the required environment flags (`NEXT_PUBLIC_ENABLE_VISION_STYLE`, `NEXT_PUBLIC_VISION_MODEL_BASE_URL`, `NEXT_PUBLIC_VISION_MODEL_ID`).
+ - `server/vision_server.py` & `server/requirements.txt` — optional FastAPI bridge for Transformers weights before WebLLM conversion. Set `NEXT_PUBLIC_VISION_ENDPOINT` to use this path.
+
 
 ## Where logic flows and what affects what
 

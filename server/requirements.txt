@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+transformers>=4.44
+torch
+torchvision
+pillow
+accelerate
+safetensors
+python-multipart

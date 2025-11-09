@@ -41,7 +41,117 @@ function detectAxis(rows: any[]): { xField: string; xType: "temporal" | "ordinal
   return { xField: "date", xType: "temporal" };
 }
 
-/** Build a minimal Vega-Lite spec from chart meta + fetched rows + field map. */
+function latestBySeries(rows: any[]) {
+  // Build { series: string, value: number } using the latest date per series
+  const bySeries = new Map<string, { date: string; value: number }>();
+  for (const r of rows) {
+    const s = r.series ?? 'Series';
+    const d = r.date ?? r.year ?? '';
+    const v = Number(r.value);
+    if (!Number.isFinite(v) || !d) continue;
+    const prev = bySeries.get(s);
+    if (!prev || String(d) > String(prev.date)) bySeries.set(s, { date: String(d), value: v });
+  }
+  return Array.from(bySeries.entries()).map(([series, { value }]) => ({ series, value }));
+}
+
+function applyPaletteToSpec(spec: any, palette?: string[]) {
+  if (!palette || !palette.length) return spec;
+  // Apply to color scale if present; otherwise to mark color (single series)
+  if (spec.encoding?.color) {
+    spec.encoding.color.scale = spec.encoding.color.scale || {};
+    spec.encoding.color.scale.range = palette;
+  } else {
+    if (typeof spec.mark === 'string') {
+      spec.mark = { type: spec.mark, color: palette[0] };
+    } else {
+      spec.mark = { ...(spec.mark || {}), color: palette[0] };
+    }
+  }
+  return spec;
+}
+
+function withPieOrDonutSpec(baseTitle: string | undefined, rows: any[], palette?: string[], donut = false) {
+  const seriesRows = latestBySeries(rows);
+  if (!seriesRows.length || seriesRows.length === 1) return null; // Not suitable; caller should fallback.
+
+  const spec: any = {
+    $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
+    title: baseTitle,
+    data: { values: seriesRows },
+    mark: { type: 'arc', innerRadius: donut ? 60 : 0 },
+    encoding: {
+      theta: { field: 'value', type: 'quantitative' },
+      color: { field: 'series', type: 'nominal' },
+      tooltip: [
+        { field: 'series', type: 'nominal', title: 'Series' },
+        { field: 'value', type: 'quantitative', title: 'Value' },
+      ],
+    },
+    view: { stroke: null },
+  };
+  return applyPaletteToSpec(spec, palette);
+}
+
+function applyChartTypeOverrides(spec: any, chartType?: string, rows?: any[], palette?: string[]) {
+  if (!chartType) return applyPaletteToSpec(spec, palette);
+
+  // Circle = points with circle shape
+  if (chartType === 'circle') {
+    if (typeof spec.mark === 'string') {
+      spec.mark = { type: 'point', shape: 'circle' };
+    } else {
+      spec.mark = { ...(spec.mark || {}), type: 'point', shape: 'circle' };
+    }
+    return applyPaletteToSpec(spec, palette);
+  }
+
+  // Bar (vertical)
+  if (chartType === 'bar') {
+    spec.mark = 'bar';
+    // Ensure x = category (date/year), y = value
+    if (spec.encoding) {
+      spec.encoding.x = spec.encoding.x || { field: 'date', type: 'temporal', title: 'Date' };
+      spec.encoding.y = { field: 'value', type: 'quantitative', title: spec.encoding.y?.title || 'Value' };
+    }
+    return applyPaletteToSpec(spec, palette);
+  }
+
+  // Bar (horizontal)
+  if (chartType === 'bar-horizontal') {
+    spec.mark = { type: 'bar', orient: 'horizontal' };
+    // Swap axes: value on X, category on Y
+    spec.encoding = spec.encoding || {};
+    spec.encoding.x = { field: 'value', type: 'quantitative', title: spec.encoding?.y?.title || 'Value' };
+    spec.encoding.y = spec.encoding.y || { field: 'date', type: 'temporal', title: 'Date' };
+    return applyPaletteToSpec(spec, palette);
+  }
+
+  // Pie / Donut (requires series)
+  if (chartType === 'pie' || chartType === 'donut') {
+    const pieSpec = withPieOrDonutSpec(spec.title, rows || [], palette, chartType === 'donut');
+    if (pieSpec) return pieSpec;
+
+    // Fallback safely to bar if we cannot build a meaningful pie/donut
+    const fb = { ...spec, mark: 'bar' };
+    fb.encoding = fb.encoding || {};
+    fb.encoding.x = fb.encoding.x || { field: 'date', type: 'temporal', title: 'Date' };
+    fb.encoding.y = { field: 'value', type: 'quantitative', title: spec.encoding?.y?.title || 'Value' };
+    return applyPaletteToSpec(fb, palette);
+  }
+
+  // Area/Line/Scatter default handling
+  if (chartType === 'area') {
+    spec.mark = 'area';
+  } else if (chartType === 'scatter') {
+    spec.mark = 'point';
+  } else if (chartType === 'line') {
+    spec.mark = 'line';
+  }
+  return applyPaletteToSpec(spec, palette);
+}
+
+// compileSpec: inject style overrides after base spec is constructed
 function compileSpec(chart: any, rows: any[], source: SourceMode) {
   // Clean rows so Vega-Lite doesn’t choke on null/NaN
   const cleaned = (rows || []).filter((r) => r && (r.value == null || Number.isFinite(Number(r.value))));
@@ -180,7 +290,18 @@ function compileSpec(chart: any, rows: any[], source: SourceMode) {
     }
   }
 
-  return spec;
+  // styleConfig retrieved from your style store (e.g., getStylePreset())
+  const style = (typeof window !== 'undefined'
+    ? (window as any).__STYLE_PRESET__?.()
+    : undefined) || {};
+
+  const palette: string[] | undefined = style.palette;
+  const chartType: string | undefined = style.chartType;
+
+  // Apply overrides, with safe fallbacks for pie/donut
+  const out = applyChartTypeOverrides(spec, chartType, rows, palette);
+
+  return out;
 }
 
 /** ======= Suggestions (pre-select prompts) ======= */

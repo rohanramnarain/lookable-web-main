@@ -1,0 +1,7 @@
+{
+  "model": "Qwen2.5-VL-7B-Instruct",
+  "format": "web-llm-mock",
+  "shards": [],
+  "tokenizer": {},
+  "notes": "Placeholder manifest. Replace with your WebLLM-compatible Qwen-VL build manifest and referenced weight shards."
+}

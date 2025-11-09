@@ -2,7 +2,26 @@
 
 // Lightweight client-only store for style config and flags
 
-export type ChartType = "line" | "area" | "bar" | "bar-horizontal" | "scatter";
+export type ChartType =
+  | 'line'
+  | 'area'
+  | 'bar'
+  | 'bar-horizontal'
+  | 'scatter'
+  | 'circle'
+  | 'pie'
+  | 'donut';
+
+export const ALLOWED_CHART_TYPES: ChartType[] = [
+  'line',
+  'area',
+  'bar',
+  'bar-horizontal',
+  'scatter',
+  'circle',
+  'pie',
+  'donut',
+];
 
 export type StyleConfig = {
   chartType?: ChartType;
@@ -13,6 +32,11 @@ export type StyleConfig = {
   background?: string; // CSS color
   strokeWidth?: number; // for line/area borders
   pointSize?: number; // for scatter/points
+};
+
+export type StylePreset = {
+  chartType?: ChartType;
+  // palette, legend, grid, background, etc...
 };
 
 type State = {
