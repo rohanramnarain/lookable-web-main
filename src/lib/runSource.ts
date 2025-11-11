@@ -67,14 +67,17 @@ export async function runSource(metricId: MetricId, params: Record<string, strin
       const racesAll = csv.split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
       const valid = ["white","black","asian","hispanic"] as const;
       const races = racesAll.filter((r): r is typeof valid[number] => (valid as readonly string[]).includes(r));
-      const start = Number(params.start ?? meta.defaultParams?.start ?? 2000);
-      const end   = Number(params.end   ?? meta.defaultParams?.end   ?? new Date().getFullYear());
+      // Accept both 'start'/'end' and 'startYear'/'endYear' (planner vs manual queries)
+      const startRaw = (params.startYear ?? params.start ?? meta.defaultParams?.start ?? 2000);
+      const endRaw   = (params.endYear   ?? params.end   ?? meta.defaultParams?.end   ?? new Date().getFullYear());
+      const start = Number(startRaw);
+      const end   = Number(endRaw);
       const out = await fetchBlsUnempByRace({ races, startYear: start, endYear: end, seasonallyAdjusted: true });
       return {
         rows: out.rows,
         yLabel: out.unit ?? "%",
         title: out.title ?? "Unemployment rate by race (CPS)",
-        provenance: { source: "BLS Public API", url: "https://api.bls.gov/publicAPI/v2/timeseries/" },
+        provenance: out.provenance,
       };
     }
 

@@ -20,7 +20,7 @@ export type BlsRaceParams = z.infer<typeof BlsRaceParams>;
 export type MonthlyRow = { date: string; value: number; series: string; unit: "%" };
 export type AnnualRow = { year: number; value: number; series: string; unit: "%" };
 
-export type FetchResult = { title: string; unit: string; rows: MonthlyRow[] };
+export type FetchResult = { title: string; unit: string; rows: MonthlyRow[]; provenance: { source: string; url: string; license?: string; note?: string; requestBody?: any } };
 
 /* =========================
  * Series IDs / helpers
@@ -73,29 +73,54 @@ async function fetchBlsSeries(seriesIds: string[], startYear: number, endYear: n
 export async function fetchBlsUnempByRace(p: BlsRaceParams): Promise<FetchResult> {
   const params = BlsRaceParams.parse(p);
   const ids = params.races.map(r => idFor(r, params.seasonallyAdjusted));
-  const json = await fetchBlsSeries(ids, params.startYear, params.endYear);
 
+  // Chunk if no API key (BLS can auto-reduce long ranges)
+  const span = Math.max(0, params.endYear - params.startYear + 1);
+  const MAX_YEARS_PER_CALL = process?.env?.BLS_API_KEY ? span : 10;
   const rows: MonthlyRow[] = [];
-  const containers = Array.isArray(json?.Results) ? json.Results : [json?.Results].filter(Boolean);
 
-  for (const c of containers) {
-    for (const s of c?.series ?? []) {
-      const seriesId: string = s?.seriesID;
-      const race = raceFromId(seriesId, params.seasonallyAdjusted);
-      const label = (typeof race === "string" && (race as Race) in PROPER) ? PROPER[race as Race] : race;
-
-      for (const d of s?.data ?? []) {
-        const period = String(d?.period);
-        if (!/^M(0[1-9]|1[0-2])$/.test(period)) continue; // skip M13
-        const value = Number(d?.value);
-        if (!Number.isFinite(value)) continue;
-        rows.push({ date: `${d.year}-${period.slice(1)}-01`, value, series: String(label), unit: "%" });
+  const ingest = (json: any) => {
+    const containers = Array.isArray(json?.Results) ? json.Results : [json?.Results].filter(Boolean);
+    for (const c of containers) {
+      for (const s of c?.series ?? []) {
+        const seriesId: string = s?.seriesID;
+        const race = raceFromId(seriesId, params.seasonallyAdjusted);
+        const label = (typeof race === "string" && (race as Race) in PROPER) ? PROPER[race as Race] : race;
+        for (const d of s?.data ?? []) {
+          const period = String(d?.period);
+          if (!/^M(0[1-9]|1[0-2])$/.test(period)) continue;
+          const value = Number(d?.value);
+          if (!Number.isFinite(value)) continue;
+          rows.push({ date: `${d.year}-${period.slice(1)}-01`, value, series: String(label), unit: "%" });
+        }
       }
     }
+  };
+
+  if (MAX_YEARS_PER_CALL >= span) {
+    const json = await fetchBlsSeries(ids, params.startYear, params.endYear);
+    ingest(json);
+  } else {
+    let start = params.startYear;
+    while (start <= params.endYear) {
+      const end = Math.min(params.endYear, start + (MAX_YEARS_PER_CALL - 1));
+      const json = await fetchBlsSeries(ids, start, end);
+      ingest(json);
+      start = end + 1;
+    }
   }
+
   rows.sort((a,b) => a.date.localeCompare(b.date));
   const scope = params.races.length === 1 ? PROPER[params.races[0]] : "Race";
-  return { title: `Unemployment rate — ${scope} (CPS, ${params.seasonallyAdjusted ? "SA" : "NSA"})`, unit: "%", rows };
+  const provUrl = "https://api.bls.gov/publicAPI/v2/timeseries/";
+  const requestBody = { seriesid: ids, startyear: String(params.startYear), endyear: String(params.endYear) };
+  const note = process?.env?.BLS_API_KEY ? "Requested full range via single POST." : "Fetched in 10-year POST chunks and merged (no API key).";
+  return {
+    title: `Unemployment rate — ${scope} (CPS, ${params.seasonallyAdjusted ? "SA" : "NSA"})`,
+    unit: "%",
+    rows,
+    provenance: { source: "BLS Public API", url: provUrl, note, requestBody },
+  };
 }
 
 /* =========================

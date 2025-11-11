@@ -290,16 +290,14 @@ function compileSpec(chart: any, rows: any[], source: SourceMode) {
     }
   }
 
-  // styleConfig retrieved from your style store (e.g., getStylePreset())
-  const style = (typeof window !== 'undefined'
-    ? (window as any).__STYLE_PRESET__?.()
-    : undefined) || {};
-
-  const palette: string[] | undefined = style.palette;
-  const chartType: string | undefined = style.chartType;
-
-  // Apply overrides, with safe fallbacks for pie/donut
-  const out = applyChartTypeOverrides(spec, chartType, rows, palette);
+  // Apply overrides from saved style config (chart type + palette),
+  // with safe fallbacks for pie/donut when data shape doesn't fit
+  const out = applyChartTypeOverrides(
+    spec,
+    styleCfg?.chartType as string | undefined,
+    rows,
+    styleCfg?.colorPalette
+  );
 
   return out;
 }
@@ -485,6 +483,35 @@ export default function Home() {
         rows = out.rows as any[];
         provenance = out.provenance;
         const fetchedYLabel = out.yLabel ?? out.title ?? undefined;
+
+        // Debug: If this is a BLS request, log params and detected data range to help diagnose truncation
+        try {
+          const src = (CATALOG as any)[p.metricId!]?.source;
+          if (src === "bls") {
+            const hasDate = rows.some((r) => r && r.date);
+            const hasYear = rows.some((r) => r && (r.year !== undefined && r.year !== null));
+            let first: string | number | undefined;
+            let last: string | number | undefined;
+            if (hasDate) {
+              const dates = rows.map((r) => String(r.date)).filter(Boolean).sort();
+              first = dates[0];
+              last = dates[dates.length - 1];
+            } else if (hasYear) {
+              const years = rows.map((r) => Number(r.year)).filter((n) => Number.isFinite(n)).sort((a,b) => a-b);
+              first = years[0];
+              last = years[years.length - 1];
+            }
+            // Surface metric/params, provenance URL (now includes series + years), and computed range
+            // eslint-disable-next-line no-console
+            console.debug("[BLS debug]", {
+              metricId: p.metricId,
+              params: p.params,
+              rows: rows.length,
+              range: { first, last },
+              provenance,
+            });
+          }
+        } catch {}
 
         if (!rows.length)
           throw new Error("No data returned for the selected metric/time range. Try a wider range.");
