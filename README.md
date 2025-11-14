@@ -189,7 +189,7 @@ Aliases like ‘UK’, ‘South Korea’, ‘Ivory Coast’, ‘World’
 
 Your server ISO index already handles many of these; just make sure your route returns codes for both “name” and common nicknames. (You already have fallbacks; adding a few more would be trivial.)
 
-## Style from image (client-only, no training)
+## Style from image (local-only, no training)
 
 - New tab at `/style` lets you upload a chart image and save a style preset.
 - Choose from more chart types: Line, Area, Bar, Bar (Horizontal), Scatter, Circle (points), Pie, Donut.

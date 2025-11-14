@@ -83,6 +83,11 @@ export function setStyleConfig(cfg: StyleConfig | null) {
   emit();
 }
 
+export function resetStyleConfig() {
+  state.styleConfig = null;
+  emit();
+}
+
 export function getFlags(): { visionUsed: boolean; clientOnly: boolean } {
   return { visionUsed: state.visionUsed, clientOnly: state.clientOnly };
 }

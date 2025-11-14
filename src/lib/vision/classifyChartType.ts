@@ -5,10 +5,12 @@ import { classifyWithVision, classifyWithVisionEndpoint } from '@/lib/vision/eng
 
 // Heuristic-only baseline; if/when vision is enabled, this module will first
 // attempt a VL classification then fall back to these heuristics.
+type VisionResult = { chartType: ChartType; confidence: number; hasGrid?: boolean };
+
 export async function classifyChartType(opts: {
   image?: HTMLImageElement | HTMLCanvasElement | ImageData | undefined;
   visionAllowed: boolean;
-}): Promise<{ chartType: ChartType; confidence: number; usedVision: boolean }> {
+}): Promise<{ chartType: ChartType; confidence: number; usedVision: boolean; hasGrid?: boolean }> {
   // Vision-only classification: no heuristic fallback.
   // If the vision engine is unavailable or abstains, we return usedVision=false
   // and a neutral confidence; callers should NOT change chart type in that case.
@@ -20,16 +22,26 @@ export async function classifyChartType(opts: {
     if (isCanvas || isImg) {
       // Prefer local HTTP endpoint if configured
       try {
-        const ep = await classifyWithVisionEndpoint(image as any);
+        const ep = await classifyWithVisionEndpoint(image as any) as VisionResult | null;
         if (ep && ALLOWED_CHART_TYPES.includes(ep.chartType as ChartType)) {
-          return { chartType: ep.chartType as ChartType, confidence: ep.confidence ?? 0.8, usedVision: true };
+          return {
+            chartType: ep.chartType as ChartType,
+            confidence: ep.confidence ?? 0.8,
+            usedVision: true,
+            hasGrid: ep.hasGrid,
+          };
         }
       } catch {}
       // Otherwise try in-browser WebLLM engine
       try {
-        const r = await classifyWithVision(image as any);
+        const r = await classifyWithVision(image as any) as VisionResult | null;
         if (r && ALLOWED_CHART_TYPES.includes(r.chartType as ChartType)) {
-          return { chartType: r.chartType as ChartType, confidence: r.confidence ?? 0.8, usedVision: true };
+          return {
+            chartType: r.chartType as ChartType,
+            confidence: r.confidence ?? 0.8,
+            usedVision: true,
+            hasGrid: r.hasGrid,
+          };
         }
       } catch {}
     }

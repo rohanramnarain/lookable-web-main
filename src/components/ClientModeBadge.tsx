@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getFlags, subscribe, getStyleConfig } from "@/lib/state/style";
+import { getFlags, subscribe, getStyleConfig, resetStyleConfig } from "@/lib/state/style";
 
 export default function ClientModeBadge() {
   const [flags, setFlags] = useState(getFlags());
@@ -19,7 +19,7 @@ export default function ClientModeBadge() {
   const styleLoaded = mounted && !!getStyleConfig();
 
   return (
-    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
       <span className="badge" title="Whether a vision classifier was used for chart type" suppressHydrationWarning>
         {visionText}
       </span>
@@ -27,9 +27,19 @@ export default function ClientModeBadge() {
         {modeText}
       </span>
       {styleLoaded && (
-        <span className="badge" title="A style preset is loaded and will be applied" suppressHydrationWarning>
-          Style: Loaded
-        </span>
+        <>
+          <span className="badge" title="A style preset is loaded and will be applied" suppressHydrationWarning>
+            Style: Loaded
+          </span>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            style={{ padding: "2px 8px", fontSize: 11 }}
+            onClick={() => resetStyleConfig()}
+          >
+            Reset style
+          </button>
+        </>
       )}
     </div>
   );

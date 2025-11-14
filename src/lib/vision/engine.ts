@@ -84,7 +84,7 @@ export async function ensureVisionEngine(): Promise<any | null> {
  * Attempt to classify the chart type using a client-side vision model.
  * Returns null if the engine is unavailable or if inference fails.
  */
-export async function classifyWithVision(img: HTMLImageElement | HTMLCanvasElement): Promise<{ chartType: "line"|"area"|"bar"|"bar-horizontal"|"scatter"|"circle"|"pie"|"donut"; confidence: number } | null> {
+export async function classifyWithVision(img: HTMLImageElement | HTMLCanvasElement): Promise<{ chartType: "line"|"area"|"bar"|"bar-horizontal"|"scatter"|"circle"|"pie"|"donut"; confidence: number; hasGrid?: boolean } | null> {
   const eng = await ensureVisionEngine();
   if (!eng) return null; // engine unavailable or consent/flag off
 
@@ -101,7 +101,7 @@ export async function classifyWithVision(img: HTMLImageElement | HTMLCanvasEleme
     const dataUrl = canvas.toDataURL("image/png");
 
     // Build a prompt instructing the model to classify the chart strictly.
-    const prompt = `You are a vision model that classifies chart images. Allowed chart types: line, area, bar, bar-horizontal, scatter, circle, pie, donut. Return ONLY strict JSON: {"chartType":"one of allowed","confidence":0.xx}. Confidence 0-1. If uncertain return {"chartType":"unknown","confidence":0}.`;
+    const prompt = `You are a vision model that classifies chart images. Allowed chart types: line, area, bar, bar-horizontal, scatter, circle, pie, donut. Also detect whether the main plot area has visible gridlines (horizontal or vertical guide lines). Return ONLY strict JSON: {"chartType":"one of allowed","confidence":0.xx,"hasGrid":true/false}. Confidence 0-1. If uncertain return {"chartType":"unknown","confidence":0,"hasGrid":false}.`;
 
     // Some web-llm builds allow image URLs in the prompt; if not, this serves as a placeholder.
     const combinedPrompt = `${prompt}\nIMAGE_DATA_URL_BEGIN\n${dataUrl}\nIMAGE_DATA_URL_END`;
@@ -115,9 +115,10 @@ export async function classifyWithVision(img: HTMLImageElement | HTMLCanvasEleme
           const obj = JSON.parse(m[0]);
           const ct = String(obj.chartType || '').toLowerCase();
           const confNum = typeof obj.confidence === 'number' ? obj.confidence : 0;
+          const hasGrid = typeof obj.hasGrid === 'boolean' ? obj.hasGrid : undefined;
           const allowed = ["line","area","bar","bar-horizontal","scatter","circle","pie","donut"];
           if (allowed.includes(ct) && confNum > 0) {
-            return { chartType: ct as any, confidence: Math.min(Math.max(confNum,0),1) };
+            return { chartType: ct as any, confidence: Math.min(Math.max(confNum,0),1), hasGrid };
           }
           if (ct === 'unknown' || confNum === 0) return null; // abstain
         } catch {}
@@ -167,7 +168,7 @@ async function canvasFrom(img: HTMLImageElement | HTMLCanvasElement): Promise<HT
   return c;
 }
 
-export async function classifyWithVisionEndpoint(img: HTMLImageElement | HTMLCanvasElement): Promise<{ chartType: ChartType; confidence: number } | null> {
+export async function classifyWithVisionEndpoint(img: HTMLImageElement | HTMLCanvasElement): Promise<{ chartType: ChartType; confidence: number; hasGrid?: boolean } | null> {
   const ep = getVisionEndpoint();
   if (!ep || typeof window === "undefined") return null;
   try {
@@ -184,8 +185,9 @@ export async function classifyWithVisionEndpoint(img: HTMLImageElement | HTMLCan
     const js = await res.json();
     const ct = typeof js.chartType === "string" ? (js.chartType as string).toLowerCase() : "";
     const conf = typeof js.confidence === "number" ? js.confidence : 0;
+    const hasGrid = typeof js.hasGrid === "boolean" ? js.hasGrid : undefined;
     if (ALLOWED_CHART_TYPES.includes(ct as ChartType) && conf > 0) {
-      return { chartType: ct as ChartType, confidence: Math.min(Math.max(conf, 0), 1) };
+      return { chartType: ct as ChartType, confidence: Math.min(Math.max(conf, 0), 1), hasGrid };
     }
     return null;
   } catch {

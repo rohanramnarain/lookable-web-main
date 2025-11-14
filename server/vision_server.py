@@ -23,7 +23,8 @@ model.to(DEVICE)
 PROMPT = (
     "Classify the chart type in this image. "
     "Choose exactly one from: line, area, bar, bar-horizontal, scatter, circle, pie, donut. "
-    "Output strict JSON only: {\"chartType\":\"<label>\",\"confidence\":<0..1>}. "
+    "Also detect whether the main plot area has visible gridlines (horizontal or vertical guide lines). "
+    "Output strict JSON only: {\"chartType\":\"<label>\",\"confidence\":<0..1>,\"hasGrid\":true/false}. "
     "No extra text."
 )
 
@@ -49,8 +50,15 @@ def parse_json_from_text(text: str):
         obj = json.loads(m.group(0))
         ct = str(obj.get("chartType", "")).lower().strip()
         conf = float(obj.get("confidence", 0.5))
+        has_grid = obj.get("hasGrid", None)
         if ct in ALLOWED:
-            return {"chartType": ct, "confidence": max(0.0, min(1.0, conf))}
+            payload = {
+                "chartType": ct,
+                "confidence": max(0.0, min(1.0, conf)),
+            }
+            if isinstance(has_grid, bool):
+                payload["hasGrid"] = has_grid
+            return payload
     except Exception:
         return None
     return None
@@ -113,6 +121,9 @@ async def classify(file: UploadFile = File(...)):
 
     parsed = parse_json_from_text(text)
     if parsed:
+        # Ensure hasGrid is always present (default False if omitted)
+        if "hasGrid" not in parsed:
+            parsed["hasGrid"] = False
         return JSONResponse(parsed, headers={
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Headers": "*",
@@ -121,13 +132,14 @@ async def classify(file: UploadFile = File(...)):
     # If no strict JSON, attempt to map the model's free text to a label (still model-driven)
     mapped = map_text_to_label(text)
     if mapped and mapped["chartType"] in ALLOWED:
+        mapped["hasGrid"] = False
         return JSONResponse(mapped, headers={
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Headers": "*",
         })
 
     # Abstain if the model didn't emit anything usable
-    return JSONResponse({"chartType": None, "confidence": 0.0}, headers={
+    return JSONResponse({"chartType": None, "confidence": 0.0, "hasGrid": False}, headers={
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "*",
     })

@@ -55,6 +55,9 @@ export default function StyleFromImagePage() {
       const cls = await classifyChartType({ image: canvas, visionAllowed: true });
       if (cls.usedVision) {
         setChartType(cls.chartType as ChartType);
+        if (typeof cls.hasGrid === "boolean") {
+          setGrid(cls.hasGrid);
+        }
       }
     setConfidence(cls.confidence);
     setUsedVision(!!cls.usedVision);
@@ -126,7 +129,7 @@ export default function StyleFromImagePage() {
                   Note: Pie/Donut require multiple series (e.g., “by race”). If unavailable, it falls back to Bar.
                 </p>
                 <p className="text-xs" style={{ marginTop: 6, color: usedVision ? '#0a7' : '#a70' }}>
-                  Classifier: {usedVision ? 'Vision model' : 'Unavailable/abstained'}{confidence !== null ? ` (confidence ${Math.round((confidence||0)*100)}%)` : ''}
+                  Classifier: {usedVision ? 'Vision model' : 'Processing'}{confidence !== null ? ` (confidence ${Math.round((confidence||0)*100)}%)` : ''}
                 </p>
               </section>
 
