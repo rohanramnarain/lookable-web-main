@@ -15,7 +15,7 @@ export default function ClientModeBadge() {
 
   // Avoid hydration mismatches: render stable placeholders until after mount
   const visionText = mounted ? (flags.visionUsed ? "Vision: Used" : "Vision: Fallback") : "Vision: …";
-  const modeText = mounted ? (flags.clientOnly ? "Inference: Client-only" : "Inference: Mixed") : "Inference: …";
+  const modeText = mounted ? (flags.clientOnly ? "Inference: Client-only" : "Inference: Local") : "Inference: …";
   const styleLoaded = mounted && !!getStyleConfig();
 
   return (
