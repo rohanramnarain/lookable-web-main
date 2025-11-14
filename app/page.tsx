@@ -311,10 +311,7 @@ const SUGGESTION_GROUPS: SuggestionGroup[] = [
     "Population Nigeria since 1990",
     "Inflation CPI % Germany 2010–2024",
   ]},
-  { label: "Open-Meteo", items: [
-    "NYC temperature next 7 days",
-    "San Francisco hourly temperature tomorrow",
-  ]},
+ 
   { label: "OWID", items: [
     "Life expectancy Japan since 1950",
     "CO2 emissions China since 1990",
