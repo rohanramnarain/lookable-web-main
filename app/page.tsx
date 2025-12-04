@@ -319,9 +319,7 @@ const SUGGESTION_GROUPS: SuggestionGroup[] = [
   { label: "BLS", items: [
     "Black unemployment in the US since 2000",
   ]},
-  { label: "EPA AirData", items: [
-    "Daily AQI for Los Angeles-Long Beach-Anaheim, CA in 2024",
-  ]},
+
 ];
 
 /** ======= Source bubbles (dynamic from catalog) ======= */
@@ -356,7 +354,7 @@ function dotStyleFor(key: BubbleKey): CSSProperties {
 // Build visible bubbles from catalog (only allowed + known keys)
 const SOURCES_BUBBLES: BubbleKey[] = Array.from(
   new Set(Object.values(CATALOG).map((d) => d.source))
-).filter((s) => isAllowedSource(s) && isBubbleKey(s)) as BubbleKey[];
+).filter((s) => isAllowedSource(s) && isBubbleKey(s) && s !== "openmeteo" && s !== "epa_aqi") as BubbleKey[];
 
 export default function Home() {
   const [query, setQuery] = useState("");
