@@ -2,25 +2,44 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 License: Licensed under the Apache License 2.0 — see `LICENSE`.
 
-## Getting Started
+## Run everything locally (quick start)
 
-First, run the development server:
-
+### 1) Frontend (Next.js)
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# opens http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 2) Vision classifier (optional, local Qwen3-VL)
+```bash
+cd server
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn vision_server:app --host 127.0.0.1 --port 8079
+```
+Set in `.env.local` if you want the style page to use it:
+```
+NEXT_PUBLIC_ENABLE_VISION_STYLE=1
+NEXT_PUBLIC_VISION_ENDPOINT=http://127.0.0.1:8079/classify
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 3) Qwen assist for Vega edits (optional)
+Requires Ollama running locally with a Qwen instruct model, e.g.:
+```bash
+ollama pull qwen2.5-coder:latest
+ollama serve
+```
+Then in project root:
+```bash
+npm run qwen-edit   # starts a local bridge on http://127.0.0.1:3002/api/edit-vega
+```
+Use the “Ask Qwen” box under a rendered chart to send edit instructions.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 4) Base URLs / env
+- App runs at `http://localhost:3000`
+- Vision endpoint default (if set): `http://127.0.0.1:8079/classify`
+- Qwen edit bridge default: `http://127.0.0.1:3002/api/edit-vega` (override with `QWEN_EDIT_API`)
 
 ## Learn More
 

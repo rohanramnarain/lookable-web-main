@@ -362,6 +362,8 @@ export default function Home() {
   const [prov, setProv] = useState<{ source: string; url: string; license?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [editInstruction, setEditInstruction] = useState("");
+  const [editLoading, setEditLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -538,6 +540,30 @@ export default function Home() {
     if (!loading && query) run();
   }
 
+  async function editSpecWithQwen() {
+    if (!spec || !editInstruction.trim()) return;
+    setEditLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/vega-edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ spec, instruction: editInstruction }),
+      });
+      if (!res.ok) {
+        const msg = await res.text();
+        throw new Error(msg || "LLM edit failed");
+      }
+      const data = await res.json();
+      if (!data?.spec) throw new Error("LLM edit returned no spec");
+      setSpec(data.spec);
+    } catch (e: any) {
+      setError(e?.message || "LLM edit failed");
+    } finally {
+      setEditLoading(false);
+    }
+  }
+
   return (
     <main className="container">
       <header className="stack" style={{ marginBottom: 12 }}>
@@ -605,6 +631,33 @@ export default function Home() {
       {spec && (
         <section className="card" aria-live="polite" style={{ overflow: "hidden" }}>
           <Chart spec={spec} filename={query} prov={prov} query={query} />
+
+          <div style={{ marginTop: 12, borderTop: "1px solid #eee", paddingTop: 12 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <label style={{ fontWeight: 600, fontSize: 14 }}>Ask Qwen to edit this Vega-Lite spec</label>
+              <input
+                type="text"
+                placeholder="e.g., Make it an area chart with 50% opacity"
+                value={editInstruction}
+                onChange={(e) => setEditInstruction(e.target.value)}
+                disabled={editLoading}
+                className="input"
+              />
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={editSpecWithQwen}
+                  disabled={editLoading || !editInstruction.trim()}
+                >
+                  {editLoading ? "Asking…" : "Ask Qwen"}
+                </button>
+                <span style={{ fontSize: 12, color: "#666" }}>
+                  Requires local Qwen edit server (default http://127.0.0.1:3002/api/edit-vega).
+                </span>
+              </div>
+            </div>
+          </div>
         </section>
       )}
 
