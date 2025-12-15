@@ -1,6 +1,7 @@
 // app/api/geo/iso3/route.ts
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 /** Tiny local fallback so we never 500 for common countries */
