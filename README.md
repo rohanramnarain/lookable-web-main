@@ -25,16 +25,18 @@ NEXT_PUBLIC_VISION_ENDPOINT=http://127.0.0.1:8079/classify
 ```
 
 ### 3) Qwen assist for Vega edits (optional)
-Requires Ollama running locally with a Qwen instruct model, e.g.:
+Requires Ollama running locally with a Qwen instruct model. Start the daemon first, then pull the model (only needed once):
 ```bash
-ollama pull qwen2.5-coder:latest
 ollama serve
+ollama pull qwen2.5-coder:latest
 ```
 Then in project root:
 ```bash
 npm run qwen-edit   # starts a local bridge on http://127.0.0.1:3002/api/edit-vega
 ```
 Use the “Ask Qwen” box under a rendered chart to send edit instructions.
+
+Tip: keep `npm run dev`, `ollama serve`, `npm run qwen-edit`, and (optionally) `uvicorn …8079` each in their own terminal tab.
 
 ### 4) Base URLs / env
 - App runs at `http://localhost:3000`
